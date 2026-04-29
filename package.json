@@ -10,7 +10,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "openai": "^4.78.0",
     "@supabase/supabase-js": "^2.104.1",
     "@tailwindcss/vite": "^4.2.1",
     "@vercel/node": "^5.6.9",

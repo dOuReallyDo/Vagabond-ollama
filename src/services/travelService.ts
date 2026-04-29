@@ -1,9 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { TravelInputs, TravelPlan, TravelPlanSchema } from "../shared/contract";
 
 export type { TravelInputs };
 
 export type ProgressCallback = (step: string, progress: number) => void;
+
+const ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 
 async function getApiKey(): Promise<string> {
   let apiKey = "";
@@ -21,7 +23,7 @@ async function getApiKey(): Promise<string> {
 
   // Fallback to Vite-injected env var
   if (!apiKey || apiKey.length < 20 || apiKey.startsWith("MY_")) {
-    const envKey = process.env.ANTHROPIC_API_KEY;
+    const envKey = process.env.ZHIPU_API_KEY;
     if (envKey && envKey.length > 20 && !envKey.startsWith("MY_")) {
       apiKey = envKey;
     }
@@ -45,9 +47,16 @@ async function getApiKey(): Promise<string> {
   return apiKey;
 }
 
-function extractText(content: Anthropic.ContentBlock[]): string {
-  const block = content.find((b): b is Anthropic.TextBlock => b.type === "text");
-  return block?.text ?? "";
+function extractText(content: string | OpenAI.ChatCompletionContentPart[]): string {
+  if (typeof content === "string") return content;
+  const textPart = content.find((p): p is OpenAI.ChatCompletionContentPartText => p.type === "text");
+  return textPart?.text ?? "";
+}
+
+function extractWebSearchResults(content: string | OpenAI.ChatCompletionContentPart[]): string {
+  if (typeof content === "string") return "";
+  const searchPart = content.find((p): p is OpenAI.ChatCompletionContentPartText => p.type === "text" && p.text?.includes("search_query"));
+  return searchPart?.text ?? "";
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -332,13 +341,13 @@ Restituisci SOLO il JSON aggiornato.
       45
     );
 
-    const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+    const client = new OpenAI({ apiKey, baseURL: ZHIPU_BASE_URL, dangerouslyAllowBrowser: true });
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+    const response = await client.chat.completions.create({
+      model: "glm-5.1",
       max_tokens: 16000,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6 }] as any,
+      tools: [{ type: "web_search", web_search: { enable: true } }] as any,
       messages: [
         {
           role: "user",
@@ -350,7 +359,7 @@ Restituisci SOLO il JSON aggiornato.
     });
 
     onProgress?.("Elaborazione dati ricevuti...", 85);
-    const text = extractText(response.content);
+    const text = extractText(response.choices[0]?.message?.content || "");
 
     const jsonStartIdx = text.indexOf("{");
     const jsonEndIdx = text.lastIndexOf("}");
@@ -535,7 +544,7 @@ export const summarizeAccommodationReviews = async (
   people: { adults: number; children: { age: number }[] }
 ) => {
   const apiKey = await getApiKey();
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  const client = new OpenAI({ apiKey, baseURL: ZHIPU_BASE_URL, dangerouslyAllowBrowser: true });
 
   const totalPeople = people.adults + people.children.length;
   const prompt = `
@@ -562,15 +571,15 @@ Il prezzo "estimatedPricePerNight" deve essere il costo REALE PER NOTTE per TUTT
 IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere testo prima o dopo il JSON. Non usare blocchi di codice markdown.
 `;
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
+  const response = await client.chat.completions.create({
+    model: "glm-5.1",
     max_tokens: 1024,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }] as any,
+    tools: [{ type: "web_search", web_search: { enable: true } }] as any,
     messages: [{ role: "user", content: prompt }],
   });
 
-  const text = extractText(response.content);
+  const text = extractText(response.choices[0]?.message?.content || "");
 
   const jsonStartIdx = text.indexOf("{");
   const jsonEndIdx = text.lastIndexOf("}");
