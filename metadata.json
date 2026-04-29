@@ -1,0 +1,5 @@
+{
+  "name": "Vagabond AI - Il Tuo Agente di Viaggio Personale",
+  "description": "Pianifica il tuo viaggio perfetto con l'intelligenza artificiale: itinerari su misura, alloggi di charme e consigli locali basati sul tuo budget.",
+  "requestFramePermissions": ["geolocation"]
+}

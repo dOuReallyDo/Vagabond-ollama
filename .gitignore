@@ -1,0 +1,20 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# env
+.env
+.env.*
+!.env.example
+
+# node
+node_modules
+dist
+apps/widget/dist
+.env.local
+.vercel
