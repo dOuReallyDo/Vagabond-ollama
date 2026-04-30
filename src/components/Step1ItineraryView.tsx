@@ -14,6 +14,7 @@ import {
   Clock, Smartphone, Users, MessageSquare, ArrowRight,
 } from 'lucide-react';
 import { cn } from '../App';
+import { TravelMap } from './TravelMap';
 import type { ItineraryDraft } from '../shared/step1-contract';
 import type { TravelInputs } from '../shared/contract';
 
@@ -388,6 +389,12 @@ export default function Step1ItineraryView({
         <section className="mb-20">
           <h2 className="text-5xl mb-2">Il tuo itinerario</h2>
           <p className="text-brand-ink/50 mb-12 font-sans text-sm">Ogni giornata pensata per vivere la destinazione in modo autentico</p>
+
+          {data.mapPoints && data.mapPoints.length > 0 && (
+            <div className="mb-12">
+              <TravelMap points={data.mapPoints as any} destination={destination} />
+            </div>
+          )}
 
           <div className="space-y-6">
             {data.itinerary.map((day, i) => {

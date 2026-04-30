@@ -95,21 +95,49 @@ export function calculateBudget(
   const foodTotal = adultFoodCost + childFoodCost;
 
   // ─── 5. Transport ───
-  // If step1.transportInfo.estimatedLocalCost exists, parse it and multiply by
-  // totalDays; otherwise estimate €20/person/day
   let transportTotal: number;
   let transportNotes: string;
+  const MAX_DAILY_TRANSPORT_PER_PERSON = 200;
 
   if (step1.transportInfo?.estimatedLocalCost) {
+    const costStr = step1.transportInfo.estimatedLocalCost.toLowerCase();
     const parsed = parseFloat(
       step1.transportInfo.estimatedLocalCost.replace(/[^\d.,]/g, '').replace(',', '.')
     );
     const dailyCost = isNaN(parsed) ? 0 : parsed;
-    transportTotal = dailyCost * totalDays;
-    transportNotes = `€${dailyCost.toFixed(0)}/giorno × ${totalDays} giorni`;
+
+    if (costStr.includes('giorno') || costStr.includes('day') || costStr.includes('/g') || costStr.includes('per day') || costStr.includes('daily')) {
+      // AI said "per day" — multiply by days, but cap per person
+      const cappedPerPerson = Math.min(dailyCost, MAX_DAILY_TRANSPORT_PER_PERSON);
+      transportTotal = cappedPerPerson * totalPeople * totalDays;
+      transportNotes = `€${cappedPerPerson}/persona/giorno × ${totalDays} giorni`;
+    } else if (costStr.includes('totale') || costStr.includes('total') || costStr.includes('complessivo')) {
+      // AI said "total" — use as-is
+      transportTotal = dailyCost;
+      transportNotes = `Costo totale trasporti locali: €${dailyCost}`;
+    } else {
+      // Ambiguous — likely total (GLM-5.1 often gives total, not per-day)
+      // But if it looks like per-day (small number) treat as per-day, otherwise as total
+      if (dailyCost <= MAX_DAILY_TRANSPORT_PER_PERSON) {
+        // Small number — probably per-day
+        transportTotal = dailyCost * totalPeople * totalDays;
+        transportNotes = `€${dailyCost}/persona/giorno × ${totalDays} giorni`;
+      } else {
+        // Large number — probably total for the trip, don't multiply
+        transportTotal = dailyCost;
+        transportNotes = `Costo totale trasporti: €${dailyCost}`;
+      }
+    }
   } else {
     transportTotal = 20 * totalPeople * totalDays;
     transportNotes = `Stima: €20/persona/giorno`;
+  }
+
+  // Safety cap: local transport should never exceed 30% of total budget
+  const transportCap = Math.round(budget * 0.3);
+  if (transportTotal > transportCap) {
+    transportNotes = `${transportNotes} (ridotto da €${transportTotal} al 30% del budget)`;
+    transportTotal = transportCap;
   }
 
   // ─── 6. Misc (10% buffer) ───

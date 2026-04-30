@@ -254,11 +254,13 @@ REGOLE COMPATTE PER EVITARE TRONCAMENTO:
 - weatherInfo, safetyAndHealth: 1 frase per campo
 - travelHighlights: whyChosen e whyUnforgettable: MAX 1 frase
 - localTips: MAX 2 elementi
-- transportInfo: 1 frase per campo, MAX 2 bestApps
+- transportInfo: 1 frase per campo, MAX 2 bestApp
 - mapPoints: MAX 3 punti (1 per tappa principale)
 - sources: MAX 3 fonti
 - NESSUN campo tips, travelTime, transport nelle attività
 - JSON PURO: zero markdown, zero testo dopo }
+
+TAPPE: MAX N/2 tappe per viaggio di N giorni. Città principali: 2-3 notti. Non cambiare città ogni giorno.
 
 ITINERARIO GIORNALIERO:
 ${dateList}
@@ -288,7 +290,7 @@ Struttura JSON (riempi TUTTI i campi):
     }
   ],
   "localTips": ["Tip1", "Tip2"],
-  "transportInfo": { "localTransport": "1 frase", "bestApps": ["App1"], "estimatedLocalCost": "€10" },
+  "transportInfo": { "localTransport": "1 frase", "bestApps": ["App1"], "estimatedLocalCost": "€X al giorno" (costo giornaliero per persona) },
   "travelHighlights": { "whyChosen": "1 frase", "mainStops": [{ "name": "Tappa", "reason": "Motivo" }], "whyUnforgettable": "1 frase" },
   "mapPoints": [{ "lat": 0, "lng": 0, "label": "Tappa", "type": "attraction" }],
   "sources": [{ "title": "Fonte", "url": "https://...", "type": "blog" }]
@@ -362,6 +364,15 @@ REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
 - sources: MAX 5 fonti.
 - JSON: SOLO il JSON, zero markdown, zero commenti, niente testo dopo la chiusura }.
 
+REGOLE PER LA DISTRIBUZIONE DELLE TAPPE (OBBLIGATORIE):
+- NON cambiare città ogni giorno. Raggruppa i pernottamenti per ridurre gli spostamenti.
+- Città principali (capirettali, mete turistiche importanti): MINIMO 2-3 notti.
+- Città secondarie/piccole: anche 1 notte se vale la pena, ma senza esagerare.
+- REGOLA GENERALE: per un viaggio di N giorni, il numero di tappe (città dove si pernotta) NON deve superare N/2. Esempio: 10 giorni = MAX 5 tappe, 6 giorni = MAX 3 tappe.
+- Se la destinazione è un'unica nazione/isola, concentrati su 2-3 basi e fai escursioni giornaliere da lì.
+- OGNI "location" nel campo attività di un giorno deve corrispondere alla città dove si pernotta quella notte. Se l'attività è un'escursione in una città vicina, indicare la location dell'escursione ma il pernottamento rimane nella base.
+- Il campo "title" di ogni giorno deve riflettere la tappa/città dove si pernotta.
+
 FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti.
 
 ITINERARIO GIORNALIERO:
@@ -399,7 +410,7 @@ Struttura JSON richiesta (DEVI riempire TUTTI i campi con dati reali):
   "transportInfo": {
     "localTransport": "T",
     "bestApps": ["A"],
-    "estimatedLocalCost": "10E",
+    "estimatedLocalCost": "€X al giorno" (DEVE essere costo giornaliero per persona, es. "€20 al giorno", NON il totale del viaggio),
     "privateTransferLinks": [
       { "provider": "P", "url": "U", "description": "D" }
     ]
@@ -419,6 +430,8 @@ Struttura JSON richiesta (DEVI riempire TUTTI i campi con dati reali):
     { "title": "Sito ufficiale", "url": "https://...", "type": "official" }
   ]
 }
+
+- "estimatedLocalCost" DEVE essere il costo medio giornaliero PER PERSONA dei trasporti locali (es. "€25 al giorno"). NON il costo totale del viaggio. Se non puoi stimare con precisione, usa "€15-25 al giorno" come range ragionevole.
 
 IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere testo prima o dopo il JSON. Non usare blocchi di codice markdown (\\\`\\\`\\\`json). NON spiegare il tuo ragionamento, non fare preamboli, non fare commenti finali. Restituisci SOLO il JSON.`;
 
