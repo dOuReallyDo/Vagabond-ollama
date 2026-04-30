@@ -220,6 +220,83 @@ SE IL MEZZO SCELTO NON È COMPATIBILE:
 `;
 }
 
+// ─── Compact prompt (fallback for truncated responses) ───────────────────
+
+function buildCompactPrompt(
+  inputs: TravelInputs,
+  dateList: string,
+  profileSection: string,
+  transportSection: string
+): string {
+  const totalPeople = inputs.people.adults + inputs.people.children.length;
+  const nights = Math.round(
+    (new Date(inputs.endDate).getTime() - new Date(inputs.startDate).getTime()) /
+      (1000 * 60 * 60 * 24)
+  );
+  const totalDays = nights + 1;
+
+  return `
+Sei un esperto agente di viaggi. Genera un itinerario per questo viaggio. RISPOSTA COMPATTA — usa descrizioni brevi e concise per ogni attività.
+${profileSection}
+${transportSection}
+DETTAGLI VIAGGIO:
+- Partenza: ${inputs.departureCity}${inputs.departureCountry ? ` (${inputs.departureCountry})` : ""}
+- Destinazione: ${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}
+- Date: ${inputs.startDate} → ${inputs.endDate} (${totalDays} giorni, ${nights} notti)
+- Persone: ${totalPeople} (${inputs.people.adults} adulti${inputs.people.children.length ? `, ${inputs.people.children.length} bambini` : ""})
+- Budget TOTALE: €${inputs.budget}
+- Note: ${inputs.notes || "nessuna"}
+
+REGOLE COMPATTE PER EVITARE TRONCAMENTO:
+- MAX 2 attività per giorno, descrizione MAX 8 parole per attività
+- destinationOverview: MAX 2 frasi
+- attractions: MAX 2 elementi, descrizione MAX 6 parole
+- weatherInfo, safetyAndHealth: 1 frase per campo
+- travelHighlights: whyChosen e whyUnforgettable: MAX 1 frase
+- localTips: MAX 2 elementi
+- transportInfo: 1 frase per campo, MAX 2 bestApps
+- mapPoints: MAX 3 punti (1 per tappa principale)
+- sources: MAX 3 fonti
+- NESSUN campo tips, travelTime, transport nelle attività
+- JSON PURO: zero markdown, zero testo dopo }
+
+ITINERARIO GIORNALIERO:
+${dateList}
+
+Struttura JSON (riempi TUTTI i campi):
+{
+  "budgetWarning": null,
+  "destinationOverview": {
+    "title": "Nome",
+    "description": "2 frasi",
+    "tagline": "Slogan",
+    "heroImageUrl": null,
+    "attractions": [
+      { "name": "A", "description": "6 parole", "category": "C", "estimatedVisitTime": "1h", "lat": 0, "lng": 0 }
+    ]
+  },
+  "weatherInfo": { "summary": "1 frase", "pros": "1 frase", "cons": "1 frase", "averageTemp": "25C", "packingTips": "1 frase" },
+  "safetyAndHealth": { "safetyWarnings": "1 frase", "vaccinationsRequired": "Nessuna", "safetyLevel": "Alto", "emergencyNumbers": "112" },
+  "itinerary": [
+    {
+      "day": 1,
+      "title": "Titolo",
+      "theme": "Tema",
+      "activities": [
+        { "time": "09:00", "location": "Luogo", "name": "Nome", "description": "8 parole", "costEstimate": 20, "duration": "2h" }
+      ]
+    }
+  ],
+  "localTips": ["Tip1", "Tip2"],
+  "transportInfo": { "localTransport": "1 frase", "bestApps": ["App1"], "estimatedLocalCost": "€10" },
+  "travelHighlights": { "whyChosen": "1 frase", "mainStops": [{ "name": "Tappa", "reason": "Motivo" }], "whyUnforgettable": "1 frase" },
+  "mapPoints": [{ "lat": 0, "lng": 0, "label": "Tappa", "type": "attraction" }],
+  "sources": [{ "title": "Fonte", "url": "https://...", "type": "blog" }]
+}
+
+SOLO il JSON. Niente markdown. Niente testo dopo }.`;
+}
+
 // ─── generateItinerary ──────────────────────────────────────────────────────
 
 export const generateItinerary = async (
@@ -347,84 +424,126 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
 
     onProgress?.("Generazione itinerario...", 45);
 
-    const client = new OpenAI({
-      apiKey,
-      baseURL: ZHIPU_BASE_URL,
-      dangerouslyAllowBrowser: true,
-    });
+    // ─── Call AI with auto-retry on truncation ─────────────
+    const callAI = async (currentPrompt: string, attempt: number): Promise<ItineraryDraft> => {
+      onProgress?.(attempt === 1 ? "Generazione itinerario..." : "Ritento con formato ridotto...", attempt === 1 ? 45 : 55);
 
-    const response = await client.chat.completions.create({
-      model: "glm-5.1",
-      max_tokens: 12000,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tools: [{ type: "web_search", web_search: { enable: true } }] as any,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    });
+      const client = new OpenAI({
+        apiKey,
+        baseURL: ZHIPU_BASE_URL,
+        dangerouslyAllowBrowser: true,
+      });
 
-    onProgress?.("Elaborazione dati ricevuti...", 85);
-    const text = extractText(response.choices[0]?.message?.content || "");
+      const response = await client.chat.completions.create({
+        model: "glm-5.1",
+        max_tokens: 16000,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tools: [{ type: "web_search", web_search: { enable: true } }] as any,
+        messages: [
+          {
+            role: "user",
+            content: currentPrompt,
+          },
+        ],
+      });
 
-    const jsonStartIdx = text.indexOf("{");
-    const jsonEndIdx = text.lastIndexOf("}");
+      onProgress?.("Elaborazione dati ricevuti...", 85);
+      const choice = response.choices[0];
+      const finishReason = choice?.finish_reason;
+      const text = extractText(choice?.message?.content || "");
 
-    if (jsonStartIdx === -1 || jsonEndIdx === -1) {
-      console.error("Nessun JSON trovato nel testo ricevuto:", text);
-      throw new Error(
-        "L'AI non ha restituito un itinerario valido. Riprova."
-      );
-    }
+      console.log(`[Step1] Attempt ${attempt}, finish_reason: ${finishReason}, response length: ${text.length}`);
 
-    const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
+      // Check for truncation
+      const isTruncated = finishReason === "length";
 
-    let json: unknown;
-    try {
-      json = repairJson(jsonText);
-    } catch {
-      throw new Error(
-        "L'AI ha interrotto la generazione dell'itinerario perché troppo lungo. Prova a ridurre la durata del viaggio o a essere più specifico nelle note."
-      );
-    }
+      const jsonStartIdx = text.indexOf("{");
+      const jsonEndIdx = text.lastIndexOf("}");
 
-    // Data cleaning (Pre-validation)
-    let j = cleanEmptyStrings(json) as Record<string, unknown>;
-
-    // Clean privateTransferLinks: filter out malformed entries
-    if (
-      j.transportInfo &&
-      typeof j.transportInfo === "object" &&
-      !Array.isArray(j.transportInfo)
-    ) {
-      const ti = j.transportInfo as Record<string, unknown>;
-      if (Array.isArray(ti.privateTransferLinks)) {
-        ti.privateTransferLinks = (ti.privateTransferLinks as unknown[]).filter(
-          (link) =>
-            link &&
-            typeof link === "object" &&
-            !Array.isArray(link) &&
-            (link as Record<string, unknown>).provider &&
-            (link as Record<string, unknown>).url
+      if (jsonStartIdx === -1 || jsonEndIdx === -1) {
+        console.error("Nessun JSON trovato nel testo ricevuto:", text);
+        if (isTruncated && attempt === 1) {
+          console.log("[Step1] Response truncated with no JSON, retrying with compact prompt...");
+          return callAI(buildCompactPrompt(inputs, dateList, profileSection, transportSection), 2);
+        }
+        throw new Error(
+          "L'AI non ha restituito un itinerario valido. Riprova."
         );
       }
-    }
 
-    const validationResult = ItineraryDraftSchema.safeParse(j);
-    if (!validationResult.success) {
-      console.error(
-        "Step 1 Validation Errors:",
-        JSON.stringify(validationResult.error.issues, null, 2)
-      );
-      console.error("Step 1 Raw AI response (first 2000 chars):", text.substring(0, 2000));
-      throw new Error(
-        "L'itinerario generato non rispetta il formato richiesto. Riprova."
-      );
-    }
+      const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
 
-    return validationResult.data;
+      let json: unknown;
+      try {
+        json = repairJson(jsonText);
+      } catch (repairError) {
+        console.error("JSON repair failed:", repairError);
+        if (attempt === 1) {
+          console.log("[Step1] JSON repair failed, retrying with compact prompt...");
+          return callAI(buildCompactPrompt(inputs, dateList, profileSection, transportSection), 2);
+        }
+        throw new Error(
+          "L'AI ha interrotto la generazione dell'itinerario perché troppo lungo. Prova a ridurre la durata del viaggio o a essere più specifico nelle note."
+        );
+      }
+
+      // Data cleaning (Pre-validation)
+      let j = cleanEmptyStrings(json) as Record<string, unknown>;
+
+      // Clean privateTransferLinks: filter out malformed entries
+      if (
+        j.transportInfo &&
+        typeof j.transportInfo === "object" &&
+        !Array.isArray(j.transportInfo)
+      ) {
+        const ti = j.transportInfo as Record<string, unknown>;
+        if (Array.isArray(ti.privateTransferLinks)) {
+          ti.privateTransferLinks = (ti.privateTransferLinks as unknown[]).filter(
+            (link) =>
+              link &&
+              typeof link === "object" &&
+              !Array.isArray(link) &&
+              (link as Record<string, unknown>).provider &&
+              (link as Record<string, unknown>).url
+          );
+        }
+      }
+
+      // If itinerary is not an array, the JSON was likely truncated mid-array
+      if (!Array.isArray(j.itinerary)) {
+        console.warn("[Step1] itinerary is not an array, likely truncated. Type:", typeof j.itinerary);
+        if (attempt === 1) {
+          console.log("[Step1] Retrying with compact prompt...");
+          return callAI(buildCompactPrompt(inputs, dateList, profileSection, transportSection), 2);
+        }
+        // On 2nd attempt, try to salvage what we have
+        if (j.itinerary == null) {
+          (j as Record<string, unknown>).itinerary = [];
+        }
+      }
+
+      const validationResult = ItineraryDraftSchema.safeParse(j);
+      if (!validationResult.success) {
+        console.error(
+          "Step 1 Validation Errors:",
+          JSON.stringify(validationResult.error.issues, null, 2)
+        );
+        console.error("Step 1 Raw AI response (first 2000 chars):", text.substring(0, 2000));
+
+        if (attempt === 1) {
+          console.log("[Step1] Validation failed, retrying with compact prompt...");
+          return callAI(buildCompactPrompt(inputs, dateList, profileSection, transportSection), 2);
+        }
+
+        throw new Error(
+          "L'itinerario generato non rispetta il formato richiesto. Riprova."
+        );
+      }
+
+      return validationResult.data;
+    };
+
+    return await callAI(prompt, 1);
   } catch (error) {
     console.error("Step 1 API call failed:", error);
     throw error;
@@ -514,7 +633,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido con TUTTI i campi.
 
     const response = await client.chat.completions.create({
       model: "glm-5.1",
-      max_tokens: 12000,
+      max_tokens: 16000,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: [{ type: "web_search", web_search: { enable: true } }] as any,
       messages: [
@@ -570,7 +689,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido con TUTTI i campi.
       }
     }
 
-    const validationResult = ItineraryDraftSchema.safeParse(json);
+    const validationResult = ItineraryDraftSchema.safeParse(j);
     if (!validationResult.success) {
       console.error(
         "Step 1 Modify Validation Errors:",
