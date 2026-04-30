@@ -75,6 +75,23 @@ function repairJson(jsonText: string): any {
   }
 }
 
+// ─── Empty string cleaner ─────────────────────────────────────────────────
+
+/** AI often returns "" instead of null. Convert empty strings to null recursively. */
+function cleanEmptyStrings(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string' && obj.trim() === '') return null;
+  if (Array.isArray(obj)) return obj.map(cleanEmptyStrings);
+  if (typeof obj === 'object') {
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      cleaned[key] = cleanEmptyStrings(value);
+    }
+    return cleaned;
+  }
+  return obj;
+}
+
 // ─── Profile builder ────────────────────────────────────────────────────────
 
 function buildProfileSection(inputs: TravelInputs): string {
@@ -338,7 +355,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
 
     const response = await client.chat.completions.create({
       model: "glm-5.1",
-      max_tokens: 8000,
+      max_tokens: 12000,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: [{ type: "web_search", web_search: { enable: true } }] as any,
       messages: [
@@ -374,7 +391,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
     }
 
     // Data cleaning (Pre-validation)
-    const j = json as Record<string, unknown>;
+    let j = cleanEmptyStrings(json) as Record<string, unknown>;
 
     // Clean privateTransferLinks: filter out malformed entries
     if (
@@ -496,7 +513,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido con TUTTI i campi.
 
     const response = await client.chat.completions.create({
       model: "glm-5.1",
-      max_tokens: 8000,
+      max_tokens: 12000,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: [{ type: "web_search", web_search: { enable: true } }] as any,
       messages: [
@@ -532,7 +549,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido con TUTTI i campi.
     }
 
     // Data cleaning (Pre-validation)
-    const j = json as Record<string, unknown>;
+    let j = cleanEmptyStrings(json) as Record<string, unknown>;
 
     if (
       j.transportInfo &&
