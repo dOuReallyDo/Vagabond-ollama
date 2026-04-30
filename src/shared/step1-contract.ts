@@ -4,6 +4,7 @@ import { z } from "zod";
 // NO flights, NO accommodations, NO restaurants, NO budget breakdown
 
 export const ItineraryDraftSchema = z.object({
+  budgetWarning: z.string().optional(),
   destinationOverview: z.object({
     title: z.string(),
     description: z.string(),

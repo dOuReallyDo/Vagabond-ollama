@@ -16,7 +16,19 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import * as XLSX from 'xlsx';
 import { generateTravelPlan, summarizeAccommodationReviews, getDestinationCountries, type TravelInputs } from './services/travelService';
+import { generateItinerary, modifyItinerary } from './services/step1Service';
+import { searchAccommodationsAndTransport } from './services/step2Service';
+import { calculateBudget } from './services/step3Service';
 import { TravelMap } from './components/TravelMap';
+import StepIndicatorComponent from './components/StepIndicator';
+import Step1ItineraryView from './components/Step1ItineraryView';
+import Step2AccommodationView from './components/Step2AccommodationView';
+import Step3BudgetView from './components/Step3BudgetView';
+import type { ItineraryDraft } from './shared/step1-contract';
+import type { AccommodationTransport } from './shared/step2-contract';
+import type { BudgetCalculation } from './shared/step3-contract';
+import type { ActiveStep } from './shared/contract-v2';
+import { createTripV2, saveStep, invalidateStepsAfter, loadTripsV2, deleteTripV2, markComplete, type SavedTripV2 } from './lib/storage-v2';
 import { useAuth } from './lib/auth';
 import { loadProfile, saveProfile, loadTrips, saveTrip, deleteTrip, toggleFavorite, migrateLocalTripsToSupabase, type SavedTrip } from './lib/storage';
 import { sanitizeTravelPlanAsync } from './lib/urlSafety';
@@ -3154,6 +3166,20 @@ export default function App() {
   // Incremented each time a trip is saved — triggers reload in FormView
   const [tripsVersion, setTripsVersion] = useState(0);
 
+  // ─── 3-step flow state ──────────────────────────────────────────────────────
+  const [activeStep, setActiveStep] = useState<ActiveStep>(1);
+  const [step1Data, setStep1Data] = useState<ItineraryDraft | null>(null);
+  const [step2Data, setStep2Data] = useState<AccommodationTransport | null>(null);
+  const [step3Data, setStep3Data] = useState<BudgetCalculation | null>(null);
+  const [step1Confirmed, setStep1Confirmed] = useState(false);
+  const [step2Confirmed, setStep2Confirmed] = useState(false);
+  const [step3Confirmed, setStep3Confirmed] = useState(false);
+  const [currentTripId, setCurrentTripId] = useState<string | null>(null);
+  const [step2LoadingProgress, setStep2LoadingProgress] = useState('');
+
+  // Flag: true = use 3-step flow, false = use legacy monolithic flow
+  const [useV2Flow, setUseV2Flow] = useState(true);
+
   // NON auto-salviamo alla generazione: il salvataggio è esplicito (pulsante "Salva Itinerario")
   // Se l'utente non è loggato mostriamo il prompt di login
   useEffect(() => {
@@ -3205,26 +3231,183 @@ export default function App() {
   }, [user]);
 
   const handleSubmit = async (inputs: TravelInputs) => {
+    if (useV2Flow) {
+      // ─── 3-step flow: Step 1 — Generate Itinerary ─────────────────────
+      setLoading(true);
+      setLoadingStep('Inizializzazione richiesta...');
+      setLoadingProgress(5);
+      setError(null);
+      try {
+        setLastInputs(inputs);
+        setLoadingStep('Analizzo la destinazione e il periodo...');
+        setLoadingProgress(20);
+        const result = await generateItinerary(inputs, (step, progress) => {
+          setLoadingStep(step);
+          setLoadingProgress(progress);
+        });
+        setStep1Data(result);
+        setActiveStep(1);
+        setStep1Confirmed(false);
+        // Clear subsequent step data
+        setStep2Data(null);
+        setStep2Confirmed(false);
+        setStep3Data(null);
+        setStep3Confirmed(false);
+        // Auto-save Step 1 to DB
+        try {
+          const trip = await createTripV2(inputs, user?.id);
+          if (trip) {
+            setCurrentTripId(trip.id);
+            await saveStep(trip.id, 1, result, user?.id);
+          }
+        } catch (saveErr) {
+          console.error('[Step1] Failed to auto-save trip:', saveErr);
+          // Non-blocking: continue even if save fails
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err: any) {
+        console.error('Error generating itinerary (Step 1):', err);
+        setError(err.message || 'Errore nella generazione dell\'itinerario. Riprova.');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // ─── Legacy monolithic flow ────────────────────────────────────────
+      setLoading(true);
+      setLoadingStep('Inizializzazione...');
+      setLoadingProgress(0);
+      setError(null);
+      try {
+        setLastInputs(inputs);
+        const result = await generateTravelPlan(inputs, (step, progress) => {
+          setLoadingStep(step);
+          setLoadingProgress(progress);
+        });
+        const sanitizedResult = await sanitizeTravelPlanAsync(result, { startDate: inputs.startDate, endDate: inputs.endDate, people: inputs.people });
+        setPlan(sanitizedResult);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err: any) {
+        console.error('Error generating plan:', err);
+        setError(err.message || 'Si è verificato un errore durante la generazione del piano. Riprova tra qualche istante.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  // ─── Step 1 → 2: User confirms itinerary, start accommodation search ──────
+  const confirmItinerary = async () => {
+    if (!step1Data || !lastInputs) return;
+    setStep1Confirmed(true);
+    setActiveStep(2);
     setLoading(true);
-    setLoadingStep('Inizializzazione...');
-    setLoadingProgress(0);
-    setError(null);
+    setStep2LoadingProgress('Ricerca alloggi e trasporti...');
+    setLoadingStep('Ricerca alloggi e trasporti...');
+    setLoadingProgress(5);
     try {
-      setLastInputs(inputs);
-      const result = await generateTravelPlan(inputs, (step, progress) => {
+      const result = await searchAccommodationsAndTransport(step1Data, lastInputs, (step, progress) => {
+        setStep2LoadingProgress(step);
         setLoadingStep(step);
         setLoadingProgress(progress);
       });
-      const sanitizedResult = await sanitizeTravelPlanAsync(result, { startDate: inputs.startDate, endDate: inputs.endDate, people: inputs.people });
-      setPlan(sanitizedResult);
+      setStep2Data(result);
+      setStep2Confirmed(false);
+      // Save Step 2
+      if (currentTripId) {
+        try { await saveStep(currentTripId, 2, result, user?.id); } catch (e) { console.error('[Step2] Save failed:', e); }
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
-      console.error('Error generating plan:', err);
-      // Show the actual error message from the backend
-      setError(err.message || 'Si è verificato un errore durante la generazione del piano. Riprova tra qualche istante.');
+      console.error('Error in Step 2 (accommodation search):', err);
+      setError(err.message || 'Errore nella ricerca degli alloggi. Riprova.');
     } finally {
       setLoading(false);
     }
+  };
+
+  // ─── Step 1: Modify itinerary ────────────────────────────────────────────
+  const handleModifyItinerary = async (request: string) => {
+    if (!step1Data || !lastInputs) return;
+    setLoading(true);
+    setLoadingStep('Aggiorno l\'itinerario...');
+    setLoadingProgress(5);
+    setError(null);
+    try {
+      const result = await modifyItinerary(step1Data, request, lastInputs, (step, progress) => {
+        setLoadingStep(step);
+        setLoadingProgress(progress);
+      });
+      setStep1Data(result);
+      setStep1Confirmed(false);
+      // Invalidate Steps 2-3 since itinerary changed
+      setStep2Data(null);
+      setStep2Confirmed(false);
+      setStep3Data(null);
+      setStep3Confirmed(false);
+      if (currentTripId) {
+        try { await invalidateStepsAfter(currentTripId, 1, user?.id); } catch (e) { console.error('[Step1 modify] Invalidation failed:', e); }
+        try { await saveStep(currentTripId, 1, result, user?.id); } catch (e) { console.error('[Step1 modify] Save failed:', e); }
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err: any) {
+      console.error('Error modifying itinerary:', err);
+      setError(err.message || 'Errore nella modifica dell\'itinerario. Riprova.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ─── Step 2 → 3: User confirms accommodations, calculate budget ─────────
+  const confirmAccommodations = () => {
+    if (!step1Data || !step2Data || !lastInputs) return;
+    setStep2Confirmed(true);
+    setActiveStep(3);
+    // Calculate budget (pure JS, instant — no loading state needed)
+    const budget = calculateBudget(step1Data, step2Data, lastInputs);
+    setStep3Data(budget);
+    // Save Step 3
+    if (currentTripId) {
+      saveStep(currentTripId, 3, budget, user?.id).catch(e => console.error('[Step3] Save failed:', e));
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // ─── Step 3: Save completed trip ──────────────────────────────────────────
+  const saveFullTrip = async () => {
+    setStep3Confirmed(true);
+    if (currentTripId) {
+      try {
+        await markComplete(currentTripId, user?.id);
+      } catch (e) {
+        console.error('[Step3] markComplete failed:', e);
+      }
+    }
+    // Increment tripsVersion to trigger reload
+    setTripsVersion(v => v + 1);
+  };
+
+  // ─── Step navigation: go back to a previous step ──────────────────────────
+  const handleStepClick = (step: ActiveStep) => {
+    if (step === 1 && step1Data) {
+      setActiveStep(1);
+    } else if (step === 2 && step2Data) {
+      setActiveStep(2);
+    } else if (step === 3 && step3Data) {
+      setActiveStep(3);
+    }
+  };
+
+  // ─── Reset 3-step flow (back to form) ─────────────────────────────────────
+  const resetV2Flow = () => {
+    setStep1Data(null);
+    setStep2Data(null);
+    setStep3Data(null);
+    setStep1Confirmed(false);
+    setStep2Confirmed(false);
+    setStep3Confirmed(false);
+    setActiveStep(1);
+    setCurrentTripId(null);
+    setStep2LoadingProgress('');
   };
 
   const handleModify = async (request: string) => {
@@ -3269,8 +3452,93 @@ export default function App() {
           </div>
         </div>
       )}
-      {!loading && !error && plan && <ResultsView plan={plan} inputs={lastInputs} onReset={() => setPlan(null)} onShowTrips={() => { setPlan(null); setShowSavedTripsFromResults(true); }} onModify={handleModify} onUpdatePlan={(newPlan) => setPlan(newPlan)} onShowAuth={() => setShowAuth(true)} planJustSaved={planJustSaved} onPlanJustSavedAck={() => setPlanJustSaved(false)} onTripSaved={() => { setTripsVersion(v => v + 1); }} />}
-      {!loading && !error && !plan && <FormView onSubmit={handleSubmit} loading={loading} initialShowTrips={showSavedTripsFromResults} onShowTripsDone={() => setShowSavedTripsFromResults(false)} onLoadTrip={(trip) => { setLastInputs(trip.inputs); setPlan(trip.plan); }} tripsVersion={tripsVersion} />}
+      {/* ─── 3-step flow (v2) ──────────────────────────────────────────────── */}
+      {!loading && !error && useV2Flow && step1Data && (
+        <div className="min-h-screen bg-brand-paper">
+          <div className="max-w-7xl mx-auto px-6 py-8">
+            <StepIndicatorComponent
+              activeStep={activeStep}
+              step1Completed={step1Confirmed}
+              step2Completed={step2Confirmed}
+              step3Completed={step3Confirmed}
+              onStepClick={handleStepClick}
+            />
+          </div>
+          {/* Step 1: Itinerary */}
+          {activeStep === 1 && !step1Confirmed && (
+            <Step1ItineraryView
+              data={step1Data}
+              inputs={lastInputs!}
+              isLoading={loading}
+              onConfirm={confirmItinerary}
+              onModify={handleModifyItinerary}
+            />
+          )}
+          {/* Step 1 confirmed but waiting for Step 2 to load — show summary */}
+          {activeStep === 1 && step1Confirmed && (
+            <div className="max-w-4xl mx-auto px-6 pb-12 text-center">
+              <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
+              <h2 className="text-2xl font-serif text-brand-ink mb-2">Itinerario confermato!</h2>
+              <p className="text-brand-ink/60 mb-6">Lo step 2 è in caricamento…</p>
+              <button
+                onClick={() => { if (step2Data) setActiveStep(2); }}
+                disabled={!step2Data}
+                className="bg-brand-accent text-white px-6 py-3 rounded-2xl font-bold hover:bg-brand-accent/85 transition-colors disabled:opacity-50"
+              >
+                Vai agli alloggi
+              </button>
+            </div>
+          )}
+          {/* Step 2: Accommodations & Transport */}
+          {activeStep === 2 && step2Data && !step2Confirmed && (
+            <Step2AccommodationView
+              data={step2Data}
+              inputs={lastInputs!}
+              isLoading={loading}
+              loadingProgress={step2LoadingProgress}
+              onConfirm={confirmAccommodations}
+              onBack={() => { setActiveStep(1); setStep2Confirmed(false); }}
+            />
+          )}
+          {/* Step 2 confirmed but waiting */}
+          {activeStep === 2 && step2Confirmed && (
+            <div className="max-w-4xl mx-auto px-6 pb-12 text-center">
+              <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
+              <h2 className="text-2xl font-serif text-brand-ink mb-2">Alloggi confermati!</h2>
+              <button
+                onClick={() => { if (step3Data) setActiveStep(3); }}
+                disabled={!step3Data}
+                className="bg-brand-accent text-white px-6 py-3 rounded-2xl font-bold hover:bg-brand-accent/85 transition-colors disabled:opacity-50"
+              >
+                Vai al budget
+              </button>
+            </div>
+          )}
+          {/* Step 3: Budget */}
+          {activeStep === 3 && step3Data && (
+            <Step3BudgetView
+              data={step3Data}
+              inputs={lastInputs!}
+              totalPeople={lastInputs!.people.adults + lastInputs!.people.children.length}
+              totalDays={Math.round((new Date(lastInputs!.endDate).getTime() - new Date(lastInputs!.startDate).getTime()) / (1000*60*60*24)) + 1}
+              onSave={saveFullTrip}
+              onBack={() => setActiveStep(2)}
+            />
+          )}
+          {/* Back to form button */}
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <button
+              onClick={resetV2Flow}
+              className="text-sm text-brand-ink/40 hover:text-brand-ink/70 transition-colors"
+            >
+              ← Nuovo viaggio
+            </button>
+          </div>
+        </div>
+      )}
+      {/* ─── Legacy monolithic flow ────────────────────────────────────────── */}
+      {!loading && !error && !useV2Flow && plan && <ResultsView plan={plan} inputs={lastInputs} onReset={() => setPlan(null)} onShowTrips={() => { setPlan(null); setShowSavedTripsFromResults(true); }} onModify={handleModify} onUpdatePlan={(newPlan) => setPlan(newPlan)} onShowAuth={() => setShowAuth(true)} planJustSaved={planJustSaved} onPlanJustSavedAck={() => setPlanJustSaved(false)} onTripSaved={() => { setTripsVersion(v => v + 1); }} />}
+      {!loading && !error && !plan && !step1Data && <FormView onSubmit={handleSubmit} loading={loading} initialShowTrips={showSavedTripsFromResults} onShowTripsDone={() => setShowSavedTripsFromResults(false)} onLoadTrip={(trip) => { setLastInputs(trip.inputs); setPlan(trip.plan); }} tripsVersion={tripsVersion} />}
 
       {/* Login prompt modal for saving trips when not authenticated */}
       <AnimatePresence>
