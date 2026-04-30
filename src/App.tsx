@@ -28,15 +28,16 @@ import type { ItineraryDraft } from './shared/step1-contract';
 import type { AccommodationTransport } from './shared/step2-contract';
 import type { BudgetCalculation } from './shared/step3-contract';
 import type { ActiveStep } from './shared/contract-v2';
-import { createTripV2, saveStep, invalidateStepsAfter, loadTripsV2, deleteTripV2, markComplete, type SavedTripV2 } from './lib/storage-v2';
+import { createTripV2, saveStep, invalidateStepsAfter, loadTripsV2, deleteTripV2, toggleFavoriteV2, markComplete, type SavedTripV2 } from './lib/storage-v2';
 import { useAuth } from './lib/auth';
 import { loadProfile, saveProfile, loadTrips, saveTrip, deleteTrip, toggleFavorite, migrateLocalTripsToSupabase, type SavedTrip } from './lib/storage';
-import { sanitizeTravelPlanAsync } from './lib/urlSafety';
+import { sanitizeTravelPlanAsync, sanitizeStep1Urls, sanitizeStep2Urls } from './lib/urlSafety';
 import { searchUnsplashImage } from './services/unsplashService';
 import { AuthForm } from './components/AuthForm';
 import { supabase } from './lib/supabase';
 import { ProfileForm, type TravelerProfileForm } from './components/ProfileForm';
 import { SavedTrips } from './components/SavedTrips';
+import { SavedTripsV2 } from './components/SavedTripsV2';
 import { NoteSuggestions } from './components/NoteSuggestions';
 import 'leaflet/dist/leaflet.css';
 
@@ -2336,7 +2337,7 @@ function ResultsView({ plan, inputs, onReset, onShowTrips, onModify, onUpdatePla
 
 // ─── FORM VIEW ────────────────────────────────────────────────────────────────
 
-function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoadTrip, tripsVersion }: { onSubmit: (inputs: TravelInputs) => void; loading: boolean; initialShowTrips?: boolean; onShowTripsDone?: () => void; onLoadTrip?: (trip: SavedTrip) => void; tripsVersion?: number }) {
+function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoadTrip, onLoadTripV2, tripsVersion, useV2Flow }: { onSubmit: (inputs: TravelInputs) => void; loading: boolean; initialShowTrips?: boolean; onShowTripsDone?: () => void; onLoadTrip?: (trip: SavedTrip) => void; onLoadTripV2?: (trip: SavedTripV2) => void; tripsVersion?: number; useV2Flow?: boolean }) {
   const { user, profile, signOut, updateProfile: updateAuthProfile } = useAuth();
   const [bgSeed] = useState(() => Math.floor(Math.random() * 1000));
   const [formStep, setFormStep] = useState<'profile' | 'travel'>('travel');
@@ -2359,6 +2360,7 @@ function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoad
     familiarity: 'Mai stato qui',
   });
   const [savedTrips, setSavedTrips] = useState<SavedTrip[]>([]);
+  const [savedTripsV2, setSavedTripsV2] = useState<SavedTripV2[]>([]);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -2389,11 +2391,13 @@ function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoad
   // Load saved trips on mount, when user changes, or when trips panel opens
   useEffect(() => {
     loadTrips(user?.id).then(setSavedTrips);
+    loadTripsV2(user?.id).then(setSavedTripsV2);
   }, [user, tripsVersion]);
 
   useEffect(() => {
     if (view === 'trips') {
       loadTrips(user?.id).then(setSavedTrips);
+      loadTripsV2(user?.id).then(setSavedTripsV2);
     }
   }, [view]);
 
@@ -2602,12 +2606,21 @@ function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoad
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }}>
 
             {/* Saved Trips View */}
-            {view === 'trips' && (
+            {view === 'trips' && !useV2Flow && (
               <SavedTrips
                 trips={savedTrips}
                 onLoad={(trip) => { onLoadTrip?.(trip); }}
                 onDelete={async (tripId) => { await deleteTrip(tripId, user?.id); const trips = await loadTrips(user?.id); setSavedTrips(trips); }}
                 onToggleFavorite={async (tripId, isFav) => { await toggleFavorite(tripId, isFav, user?.id); const trips = await loadTrips(user?.id); setSavedTrips(trips); }}
+                onBack={() => setView('form')}
+              />
+            )}
+            {view === 'trips' && useV2Flow && (
+              <SavedTripsV2
+                trips={savedTripsV2}
+                onLoad={(trip) => { onLoadTripV2?.(trip); }}
+                onDelete={async (tripId) => { await deleteTripV2(tripId, user?.id); const trips = await loadTripsV2(user?.id); setSavedTripsV2(trips); }}
+                onToggleFavorite={async (tripId, isFav) => { await toggleFavoriteV2(tripId, isFav, user?.id); const trips = await loadTripsV2(user?.id); setSavedTripsV2(trips); }}
                 onBack={() => setView('form')}
               />
             )}
@@ -3163,8 +3176,11 @@ export default function App() {
   const [planJustSaved, setPlanJustSaved] = useState(false);
   // Quando l'utente dalla ResultsView vuole vedere i suoi viaggi
   const [showSavedTripsFromResults, setShowSavedTripsFromResults] = useState(false);
+  // Quando l'utente nel flusso v2 vuole vedere i viaggi salvati
+  const [showV2SavedTrips, setShowV2SavedTrips] = useState(false);
   // Incremented each time a trip is saved — triggers reload in FormView
   const [tripsVersion, setTripsVersion] = useState(0);
+  const [savedTripsV2, setSavedTripsV2] = useState<SavedTripV2[]>([]);
 
   // ─── 3-step flow state ──────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<ActiveStep>(1);
@@ -3300,7 +3316,8 @@ export default function App() {
           setLoadingStep(step);
           setLoadingProgress(progress);
         });
-        setStep1Data(result);
+        const sanitizedStep1 = await sanitizeStep1Urls(result, inputs);
+        setStep1Data(sanitizedStep1);
         setActiveStep(1);
         setStep1Confirmed(false);
         // Clear subsequent step data
@@ -3313,7 +3330,7 @@ export default function App() {
           const trip = await createTripV2(inputs, user?.id);
           if (trip) {
             setCurrentTripId(trip.id);
-            await saveStep(trip.id, 1, result, user?.id);
+            await saveStep(trip.id, 1, sanitizedStep1, user?.id);
           }
         } catch (saveErr) {
           console.error('[Step1] Failed to auto-save trip:', saveErr);
@@ -3365,11 +3382,12 @@ export default function App() {
         setLoadingStep(step);
         setLoadingProgress(progress);
       });
-      setStep2Data(result);
+      const sanitizedStep2 = await sanitizeStep2Urls(result, lastInputs);
+      setStep2Data(sanitizedStep2);
       setStep2Confirmed(false);
       // Save Step 2
       if (currentTripId) {
-        try { await saveStep(currentTripId, 2, result, user?.id); } catch (e) { console.error('[Step2] Save failed:', e); }
+        try { await saveStep(currentTripId, 2, sanitizedStep2, user?.id); } catch (e) { console.error('[Step2] Save failed:', e); }
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
@@ -3392,7 +3410,8 @@ export default function App() {
         setLoadingStep(step);
         setLoadingProgress(progress);
       });
-      setStep1Data(result);
+      const sanitizedStep1 = await sanitizeStep1Urls(result, lastInputs);
+      setStep1Data(sanitizedStep1);
       setStep1Confirmed(false);
       // Invalidate Steps 2-3 since itinerary changed
       setStep2Data(null);
@@ -3401,7 +3420,7 @@ export default function App() {
       setStep3Confirmed(false);
       if (currentTripId) {
         try { await invalidateStepsAfter(currentTripId, 1, user?.id); } catch (e) { console.error('[Step1 modify] Invalidation failed:', e); }
-        try { await saveStep(currentTripId, 1, result, user?.id); } catch (e) { console.error('[Step1 modify] Save failed:', e); }
+        try { await saveStep(currentTripId, 1, sanitizedStep1, user?.id); } catch (e) { console.error('[Step1 modify] Save failed:', e); }
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
@@ -3534,16 +3553,24 @@ export default function App() {
         </div>
       )}
       {/* ─── 3-step flow (v2) ──────────────────────────────────────────────── */}
-      {!loading && !error && useV2Flow && step1Data && (
+      {!loading && !error && useV2Flow && step1Data && !showV2SavedTrips && (
         <div className="min-h-screen bg-brand-paper">
           <div className="max-w-7xl mx-auto px-6 py-8">
-            <StepIndicatorComponent
-              activeStep={activeStep}
-              step1Completed={step1Confirmed}
-              step2Completed={step2Confirmed}
-              step3Completed={step3Confirmed}
-              onStepClick={handleStepClick}
-            />
+            <div className="flex items-center justify-between">
+              <StepIndicatorComponent
+                activeStep={activeStep}
+                step1Completed={step1Confirmed}
+                step2Completed={step2Confirmed}
+                step3Completed={step3Confirmed}
+                onStepClick={handleStepClick}
+              />
+              <button
+                onClick={() => { loadTripsV2(user?.id).then(setSavedTripsV2); setShowV2SavedTrips(true); }}
+                className="text-sm text-brand-ink/50 hover:text-brand-accent transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-accent/5 flex items-center gap-1.5"
+              >
+                <MapPin className="w-4 h-4" /> I miei viaggi
+              </button>
+            </div>
           </div>
           {/* Step 1: Itinerary */}
           {activeStep === 1 && !step1Confirmed && (
@@ -3622,9 +3649,32 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* ─── V2 Saved Trips overlay ──────────────────────────────────────────── */}
+      {showV2SavedTrips && useV2Flow && (
+        <SavedTripsV2
+          trips={savedTripsV2}
+          onLoad={(trip) => {
+            setLastInputs(trip.inputs);
+            setCurrentTripId(trip.id);
+            setStep1Data(trip.step1_data);
+            setStep1Confirmed(trip.step1_completed);
+            setStep2Data(trip.step2_data);
+            setStep2Confirmed(trip.step2_completed);
+            setStep3Data(trip.step3_data);
+            setStep3Confirmed(trip.step3_completed);
+            if (!trip.step1_completed) { setActiveStep(1); }
+            else if (!trip.step2_completed) { setActiveStep(2); }
+            else { setActiveStep(3); }
+            setShowV2SavedTrips(false);
+          }}
+          onDelete={async (tripId) => { await deleteTripV2(tripId, user?.id); const trips = await loadTripsV2(user?.id); setSavedTripsV2(trips); }}
+          onToggleFavorite={async (tripId, isFav) => { await toggleFavoriteV2(tripId, isFav, user?.id); const trips = await loadTripsV2(user?.id); setSavedTripsV2(trips); }}
+          onBack={() => setShowV2SavedTrips(false)}
+        />
+      )}
       {/* ─── Legacy monolithic flow ────────────────────────────────────────── */}
       {!loading && !error && !useV2Flow && plan && <ResultsView plan={plan} inputs={lastInputs} onReset={() => setPlan(null)} onShowTrips={() => { setPlan(null); setShowSavedTripsFromResults(true); }} onModify={handleModify} onUpdatePlan={(newPlan) => setPlan(newPlan)} onShowAuth={() => setShowAuth(true)} planJustSaved={planJustSaved} onPlanJustSavedAck={() => setPlanJustSaved(false)} onTripSaved={() => { setTripsVersion(v => v + 1); }} />}
-      {!loading && !error && !plan && !step1Data && <FormView onSubmit={handleSubmit} loading={loading} initialShowTrips={showSavedTripsFromResults} onShowTripsDone={() => setShowSavedTripsFromResults(false)} onLoadTrip={(trip) => { setLastInputs(trip.inputs); setPlan(trip.plan); }} tripsVersion={tripsVersion} />}
+      {!loading && !error && !plan && !step1Data && <FormView onSubmit={handleSubmit} loading={loading} initialShowTrips={showSavedTripsFromResults} onShowTripsDone={() => setShowSavedTripsFromResults(false)} onLoadTrip={(trip) => { setLastInputs(trip.inputs); setPlan(trip.plan); }} onLoadTripV2={(trip) => { setLastInputs(trip.inputs); setCurrentTripId(trip.id); setStep1Data(trip.step1_data); setStep1Confirmed(trip.step1_completed); setStep2Data(trip.step2_data); setStep2Confirmed(trip.step2_completed); setStep3Data(trip.step3_data); setStep3Confirmed(trip.step3_completed); if (!trip.step1_completed) { setActiveStep(1); } else if (!trip.step2_completed) { setActiveStep(2); } else { setActiveStep(3); } }} useV2Flow={useV2Flow} tripsVersion={tripsVersion} />}
 
       {/* Login prompt modal for saving trips when not authenticated */}
       <AnimatePresence>
