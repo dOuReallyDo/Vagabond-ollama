@@ -51,7 +51,12 @@ Vagabond-ollama implements a 3-layer URL protection system to prevent users from
 - `bookingUrl` must be Booking.com or official hotel site; `sourceUrl` must be a trusted domain
 
 ### Layer 2: Post-processing Sanitization (`src/lib/urlSafety.ts`)
-- `sanitizeTravelPlanAsync()` processes every URL field in TravelPlan objects before display. Sync version `sanitizeTravelPlan()` (whitelist-only) kept for tests
+- `sanitizeTravelPlanAsync()` processes every URL field in TravelPlan objects before display (legacy flow). Sync version `sanitizeTravelPlan()` (whitelist-only) kept for tests
+- **v2 flow dedicated sanitizers** (all AI-generated URLs in the 3-step flow are now sanitized, not just legacy):
+  - `sanitizeStep1Urls(data: ItineraryDraft, travelInputs: TravelInputs): Promise<ItineraryDraft>` — checks attractions `sourceUrl`, `heroImageUrl`, activities `sourceUrl`/`imageUrl`, sources `url`
+  - `sanitizeStep2Urls(data: AccommodationTransport, travelInputs: TravelInputs): Promise<AccommodationTransport>` — checks accommodations `bookingUrl`/`officialUrl`/`imageUrl`, restaurants `sourceUrl`, flights `bookingUrl`
+  - Shared helpers: `runAsyncSanitizer()` (eliminates duplicate logic from `sanitizeTravelPlanAsync`), `isSafeImageUrl()` for image CDN whitelist
+  - Called in App.tsx after `generateItinerary()`, `modifyItinerary()`, `searchAccommodationsAndTransport()`
 - **Whitelisted domains**: pass through unchanged (80+ entries including booking.com, tripadvisor.com, google.com, etc.)
 - **Structurally invalid URLs**: immediately replaced with safe alternatives:
   - IP addresses as host → replaced

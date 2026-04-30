@@ -28,6 +28,12 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 - **Timeline visiva**: Le tappe sono visibili in sequenza (es. "Milano → Lisbona (3gg) → Porto → Milano")
 - **Mappa interattiva**: Leaflet/OpenStreetMap con marker mostrata nell'itinerario (Step 1)
 
+## I Miei Viaggi — Visualizzazione Step-by-Step
+- **SavedTripsV2**: ogni viaggio salvato mostra badge di completamento per step (📋 Itinerario ✓/○, 🏨 Alloggi ✓/○, 💰 Budget ✓/○)
+- **Read-only navigation**: caricando un viaggio salvato si naviga tra gli step senza poter modificare (solo "← Indietro" / "Avanti →")
+- Preferiti in cima alla lista, eliminazione con conferma
+- La visualizzazione a step permette di rivedere itinerario, alloggi e budget come in un report interattivo
+
 ## User Persona
 - **Il Viaggiatore Curioso**: Cerca esperienze autentiche lontano dai circuiti di massa.
 - **La Famiglia Organizzata**: Ha bisogno di gestire budget e attività per bambini in modo chiaro.
@@ -35,7 +41,7 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 
 ## Design Philosophy
 - **Minimalismo**: L'interfaccia deve sparire per lasciare spazio alle immagini e alle informazioni.
-- **Fiducia**: Ogni link deve funzionare (URL Safety 3-layer), ogni costo deve essere realistico (cap trasporti al 30% del budget).
+- **Fiducia**: Ogni link deve funzionare (URL Safety 3-layer + v2 sanitizers per flusso 3-step), ogni costo deve essere realistico (cap trasporti al 30% del budget). URL AI-generati sono sanificati sia nel flusso legacy (`sanitizeTravelPlanAsync()`) che nel flusso v2 (`sanitizeStep1Urls()` + `sanitizeStep2Urls()`).
 - **Progressività**: L'utente conferma e seleziona prima di procedere — niente sorprese, niente costi nascosti.
 - **Resilienza**: Se l'AI tronca la risposta, il sistema ritenta automaticamente con un prompt più conciso.
 

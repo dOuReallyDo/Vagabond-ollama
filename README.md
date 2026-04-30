@@ -35,7 +35,10 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **Fonti verificabili**: Blog, guide e siti ufficiali per ogni itinerario
 - **Autenticazione**: Supabase Auth (email + Google OAuth)
 - **Viaggi Salvati**: Persistenza in 3 fasi (itinerario, alloggi, budget) su `saved_trips_v2`
+- **SavedTripsV2**: Lista viaggi salvati con badge step (📋 ✓/○, 🏨 ✓/○, 💰 ✓/○), preferiti primi, elimina con conferma
+- **Read-Only Trip Viewing**: Visualizza viaggi salvati navigando tra step senza modificare (solo "← Indietro" / "Avanti →")
 - **URL Safety**: 3-layer protection per tutti i link (whitelist + structural + Google Safe Browsing)
+- **v2 URL Safety**: `sanitizeStep1Urls()` / `sanitizeStep2Urls()` — sanificazione dedicata per il flusso 3-step
 - **localStorage Fallback**: Funziona anche senza login
 
 ## 🏗️ Architettura 3-Step
@@ -95,7 +98,8 @@ src/
 │   ├── Step3BudgetView.tsx          # Step 3: budget breakdown + save feedback
 │   ├── AuthForm.tsx                 # Login/Signup UI
 │   ├── ProfileForm.tsx              # Profilo viaggiatore
-│   ├── SavedTrips.tsx              # Lista viaggi salvati
+│   ├── SavedTrips.tsx              # Lista viaggi salvati (legacy)
+│   ├── SavedTripsV2.tsx            # Lista viaggi salvati v2 con badge step + preferiti + elimina conferma
 │   ├── TravelMap.tsx               # Leaflet map
 │   └── NoteSuggestions.tsx         # Clickable note suggestions
 ├── lib/
@@ -184,7 +188,10 @@ Nuova tabella per l'architettura 3-step:
 
 3-layer protection:
 1. **Prompt-level**: istruzioni esplicite per domini fidati (80+ whitelist)
-2. **Post-processing**: `sanitizeTravelPlanAsync()` verifica ogni URL (structural + whitelist)
+2. **Post-processing**: `sanitizeTravelPlanAsync()` verifica ogni URL (structural + whitelist) per il flusso legacy. Il **flusso v2** usa sanitizzatori dedicati:
+   - `sanitizeStep1Urls()` — verifica sourceUrl, heroImageUrl, activities imageUrl per l'itinerario
+   - `sanitizeStep2Urls()` — verifica bookingUrl, officialUrl, imageUrl per alloggi e voli
+   - Helper condivisi: `runAsyncSanitizer()`, `isSafeImageUrl()` (whitelist CDN immagini)
 3. **Google Safe Browsing API**: verifica batch per domini sconosciuti (fail-closed)
 
 ## ⚠️ Note di Sviluppo

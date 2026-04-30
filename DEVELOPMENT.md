@@ -149,7 +149,8 @@ L'integrazione Unsplash arricchisce le viste con immagini reali:
 | `Step3BudgetView` | Display budget (da selezioni utente) + costTable + salva con feedback visivo |
 | `AuthProvider` | Sessione auth, profilo utente (persistSession: true) |
 | `ProfileForm` | Step 1 del form — profilo viaggiatore |
-| `SavedTrips` | Lista e gestione viaggi salvati (v2) |
+| `SavedTrips` | Lista e gestione viaggi salvati (v1, legacy) |
+| `SavedTripsV2` | Lista viaggi salvati v2 — badge step (📋 ✓/○, 🏨 ✓/○, 💰 ✓/○), preferiti primi, elimina con conferma, onLoadTripV2 |
 
 ## Deploy (Vercel)
 
@@ -177,3 +178,6 @@ L'integrazione Unsplash arricchisce le viste con immagini reali:
 14. **Budget usa `selectedIndex`** — calculateBudget() prende l'opzione selezionata dall'utente per alloggi e trasporti, non sempre `options[0]`
 15. **Smart transport cost** — `estimatedLocalCost` è ambiguo (per-giorno vs totale). Il codice lo parsifica intelligentemente e applica cap 30% budget + €200/persona/giorno.
 16. **Mappa in Step 1** — TravelMap usa i `mapPoints` dell'ItineraryDraft. Se l'AI non restituisce mapPoints validi, la mappa non viene renderizzata.
+17. **SavedTripsV2** — Quando `useV2Flow=true`, usare `SavedTripsV2` (non `SavedTrips`). Il componente mostra badge di completamento per ogni step, preferiti primi, e `onLoadTripV2(trip)` ripristina l'intero stato v2 (lastInputs, currentTripId, step data + completion flags, activeStep=1 per sola visualizzazione).
+18. **ReadOnly mode** — Tutti e 3 gli step component accettano `readOnly?: boolean`. Quando `viewingSavedTrip=true`, l'utente naviga tra step senza poter modificare/confermare/salvare. Lo StepIndicator è cliccabile per navigazione. "Nuovo viaggio" resetta `viewingSavedTrip=false`.
+19. **v2 URL Safety** — I flussi v2 usano `sanitizeStep1Urls()` e `sanitizeStep2Urls()` (non `sanitizeTravelPlanAsync()`). Vengono chiamati in App.tsx dopo `generateItinerary()`, `modifyItinerary()`, `searchAccommodationsAndTransport()`. Helper condivisi: `runAsyncSanitizer()`, `isSafeImageUrl()` per whitelist CDN immagini.
