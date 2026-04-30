@@ -87,6 +87,23 @@ function repairJson(jsonText: string): any {
   }
 }
 
+// ─── Empty string cleaner ────────────────────────────────────────────────
+
+/** AI often returns "" instead of null. Convert empty strings to null recursively. */
+function cleanEmptyStrings(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string' && obj.trim() === '') return null;
+  if (Array.isArray(obj)) return obj.map(cleanEmptyStrings);
+  if (typeof obj === 'object') {
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      cleaned[key] = cleanEmptyStrings(value);
+    }
+    return cleaned;
+  }
+  return obj;
+}
+
 // ─── Stop extraction ────────────────────────────────────────────────────────
 
 interface Stop {
@@ -266,7 +283,8 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
   }
 
   const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
-  const json = repairJson(jsonText);
+  const rawJson = repairJson(jsonText);
+  const json = cleanEmptyStrings(rawJson) as Record<string, unknown>;
 
   // Validate sub-objects
   const accommodations = AccommodationStopSchema.parse(json.accommodations);
@@ -352,7 +370,8 @@ SOLO JSON, zero markdown.`;
   }
 
   const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
-  const json = repairJson(jsonText);
+  const rawJson = repairJson(jsonText);
+  const json = cleanEmptyStrings(rawJson) as Record<string, unknown>;
 
   const accommodations = AccommodationStopSchema.parse(json.accommodations);
   const restaurants = RestaurantStopSchema.parse(json.restaurants);
@@ -450,11 +469,17 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
   }
 
   const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
-  const json = repairJson(jsonText);
+  const rawJson = repairJson(jsonText);
+  const json = cleanEmptyStrings(rawJson) as Record<string, unknown>;
 
-  // Validate flight segments
-  const flights = z.array(FlightSegmentSchema).parse(json.flights);
-  return flights;
+  // Validate flight segments — use safeParse to be resilient
+  const flightResult = z.array(FlightSegmentSchema).safeParse(json.flights);
+  if (flightResult.success) {
+    return flightResult.data;
+  }
+  console.error("[Step2] Flight validation errors:", JSON.stringify(flightResult.error.issues, null, 2));
+  console.error("[Step2] Raw flights data:", JSON.stringify(json.flights)?.substring(0, 500));
+  throw new Error("Validazione voli fallita — risposta AI non conforme allo schema");
 }
 
 // ─── Main export: searchAccommodationsAndTransport ───────────────────────────

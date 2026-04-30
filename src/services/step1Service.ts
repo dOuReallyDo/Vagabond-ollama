@@ -245,6 +245,7 @@ DETTAGLI VIAGGIO:
 - Date: ${inputs.startDate} → ${inputs.endDate} (${totalDays} giorni, ${nights} notti)
 - Persone: ${totalPeople} (${inputs.people.adults} adulti${inputs.people.children.length ? `, ${inputs.people.children.length} bambini` : ""})
 - Budget TOTALE: €${inputs.budget}
+- Stopover richiesto: ${inputs.stopover || "Nessuno"}
 - Note: ${inputs.notes || "nessuna"}
 
 REGOLE COMPATTE PER EVITARE TRONCAMENTO:
@@ -348,6 +349,7 @@ DETTAGLI VIAGGIO:
 - Date: ${inputs.startDate} → ${inputs.endDate} (${totalDays} giorni, ${nights} notti)
 - Persone: ${totalPeople} (${inputs.people.adults} adulti${inputs.people.children.length ? `, ${inputs.people.children.length} bambini` : ""})
 - Budget TOTALE: €${inputs.budget}
+- Stopover richiesto: ${inputs.stopover || "Nessuno"}
 - Note: ${inputs.notes || "nessuna"}
 
 🔗 SICUREZZA DEI LINK (OBBLIGATORIO):
