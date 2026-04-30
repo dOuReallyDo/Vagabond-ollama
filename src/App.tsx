@@ -3412,6 +3412,25 @@ export default function App() {
     }
   };
 
+  // ─── Step 2: Selection handlers ──────────────────────────────────────────
+  const handleAccommodationSelect = (stopIndex: number, optionIndex: number) => {
+    if (!step2Data) return;
+    const updated = { ...step2Data };
+    updated.accommodations = updated.accommodations.map((stop, i) =>
+      i === stopIndex ? { ...stop, selectedIndex: optionIndex } : stop
+    );
+    setStep2Data(updated);
+  };
+
+  const handleFlightSelect = (segmentIndex: number, optionIndex: number) => {
+    if (!step2Data) return;
+    const updated = { ...step2Data };
+    updated.flights = updated.flights?.map((seg, i) =>
+      i === segmentIndex ? { ...seg, selectedIndex: optionIndex } : seg
+    );
+    setStep2Data(updated);
+  };
+
   // ─── Step 2 → 3: User confirms accommodations, calculate budget ─────────
   const confirmAccommodations = () => {
     if (!step1Data || !step2Data || !lastInputs) return;
@@ -3557,10 +3576,13 @@ export default function App() {
             <Step2AccommodationView
               data={step2Data}
               inputs={lastInputs!}
+              itinerary={step1Data!}
               isLoading={loading}
               loadingProgress={step2LoadingProgress}
               onConfirm={confirmAccommodations}
               onBack={() => { setActiveStep(1); setStep2Confirmed(false); }}
+              onAccommodationSelect={handleAccommodationSelect}
+              onFlightSelect={handleFlightSelect}
             />
           )}
           {/* Step 2 confirmed but waiting */}

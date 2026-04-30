@@ -3,20 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Step 2 AccommodationTransportView — displays accommodations, restaurants, and flights
- * with per-stop accordion and confirm/back actions.
+ * with per-stop accordion, selectable cards, trip timeline, and confirm/back actions.
  * Part of the Vagabond 3-step architecture.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Hotel, Utensils, Plane, MapPin, Star, ChevronDown,
   ExternalLink, CheckCircle2, AlertTriangle, Loader2,
   ArrowLeft, ArrowRight, ShieldCheck, Train, Car,
+  Check, PlaneTakeoff, PlaneLanding,
 } from 'lucide-react';
 import { cn } from '../App';
 import type { AccommodationTransport, AccommodationStop, RestaurantStop, FlightSegment } from '../shared/step2-contract';
 import type { TravelInputs } from '../shared/contract';
+import type { ItineraryDraft } from '../shared/step1-contract';
 
 // ─── STAR RATING ────────────────────────────────────────────────────────────
 
@@ -74,18 +76,95 @@ function SkeletonCard() {
   );
 }
 
-// ─── HOTEL CARD ─────────────────────────────────────────────────────────────
+// ─── TRIP TIMELINE ───────────────────────────────────────────────────────────
 
-function HotelCard({ hotel, nights }: { hotel: AccommodationStop['options'][0]; nights?: number }) {
+function TripTimeline({ stops, departureCity }: { stops: AccommodationStop[]; departureCity: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-10"
+    >
+      <div className="glass p-5 rounded-2xl overflow-x-auto">
+        <div className="flex items-center gap-2 min-w-max">
+          {/* Departure city at start */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <PlaneTakeoff className="w-4 h-4 text-brand-accent" />
+            <span className="text-sm font-bold text-brand-ink">{departureCity}</span>
+          </div>
+
+          {stops.map((stop, i) => (
+            <React.Fragment key={i}>
+              <ArrowRight className="w-4 h-4 text-brand-ink/30 shrink-0" />
+              <div className="flex items-center gap-1.5 shrink-0 bg-brand-accent/10 rounded-full px-3 py-1.5">
+                <MapPin className="w-3.5 h-3.5 text-brand-accent" />
+                <span className="text-sm font-semibold text-brand-ink">{stop.stopName}</span>
+                {stop.nights != null && (
+                  <span className="text-[10px] font-bold text-brand-accent bg-brand-accent/20 rounded-full px-1.5 py-0.5">
+                    {stop.nights} {stop.nights === 1 ? 'notte' : 'notti'}
+                  </span>
+                )}
+              </div>
+            </React.Fragment>
+          ))}
+
+          {/* Return to departure city */}
+          <ArrowRight className="w-4 h-4 text-brand-ink/30 shrink-0" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <PlaneLanding className="w-4 h-4 text-brand-ink/50" />
+            <span className="text-sm font-bold text-brand-ink/70">{departureCity}</span>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── HOTEL CARD (selectable) ────────────────────────────────────────────────
+
+function HotelCard({
+  hotel,
+  nights,
+  isSelected,
+  onSelect,
+}: {
+  hotel: AccommodationStop['options'][0];
+  nights?: number;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="group bg-white rounded-3xl shadow-sm border border-brand-ink/5 p-6 hover:shadow-md transition-all duration-300"
+      onClick={onSelect}
+      className={cn(
+        'group relative bg-white rounded-3xl shadow-sm p-6 hover:shadow-md transition-all duration-300 cursor-pointer',
+        isSelected
+          ? 'ring-2 ring-brand-accent shadow-md scale-[1.01] border-transparent'
+          : 'border border-brand-ink/5'
+      )}
     >
+      {/* Selected badge */}
+      {isSelected && (
+        <div className="absolute -top-2 -right-2 z-10 bg-brand-accent text-white rounded-full w-7 h-7 flex items-center justify-center shadow-lg">
+          <Check className="w-4 h-4" />
+        </div>
+      )}
+
+      {/* Type + Selected label */}
+      <div className="flex items-center gap-2 mb-1">
+        <p className="text-[10px] text-brand-ink/40 uppercase tracking-widest">{hotel.type}</p>
+        {isSelected && (
+          <span className="text-[10px] font-bold uppercase tracking-widest bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md">
+            Selezionato
+          </span>
+        )}
+      </div>
+
       {/* Header: name + stars */}
       <div className="flex justify-between items-start mb-1">
-        <h4 className="text-lg font-serif leading-tight group-hover:text-brand-accent transition-colors pr-2">
+        <h4 className={cn('text-lg font-serif leading-tight pr-2 transition-colors', isSelected ? 'text-brand-accent' : 'group-hover:text-brand-accent')}>
           {hotel.name}
         </h4>
         {hotel.stars && (
@@ -96,9 +175,6 @@ function HotelCard({ hotel, nights }: { hotel: AccommodationStop['options'][0]; 
           </div>
         )}
       </div>
-
-      {/* Type */}
-      <p className="text-[10px] text-brand-ink/40 uppercase tracking-widest mb-3">{hotel.type}</p>
 
       {/* Rating */}
       {hotel.rating && <StarRating value={hotel.rating} />}
@@ -133,9 +209,9 @@ function HotelCard({ hotel, nights }: { hotel: AccommodationStop['options'][0]; 
       <div className="flex justify-between items-center pt-4 mt-4 border-t border-brand-ink/5">
         <div>
           <span className="text-xs text-brand-ink/40 block">per notte</span>
-          <span className="font-bold text-lg">€{hotel.estimatedPricePerNight}</span>
+          <span className={cn('font-bold text-lg', isSelected ? 'text-brand-accent' : '')}>€{hotel.estimatedPricePerNight}</span>
           {nights && nights > 1 && (
-            <span className="text-xs text-brand-ink/40 ml-1">
+            <span className={cn('text-xs ml-1 font-semibold', isSelected ? 'text-brand-accent/80' : 'text-brand-ink/40')}>
               × {nights} = €{hotel.estimatedPricePerNight * nights}
             </span>
           )}
@@ -146,6 +222,7 @@ function HotelCard({ hotel, nights }: { hotel: AccommodationStop['options'][0]; 
               href={hotel.officialUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               className="text-xs font-bold uppercase tracking-widest text-brand-ink/60 hover:text-brand-ink flex items-center gap-1"
             >
               Sito ufficiale <ExternalLink className="w-3 h-3" />
@@ -156,6 +233,7 @@ function HotelCard({ hotel, nights }: { hotel: AccommodationStop['options'][0]; 
               href={hotel.bookingUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               className="text-xs font-bold uppercase tracking-widest text-brand-accent hover:underline flex items-center gap-1"
             >
               Prenota <ExternalLink className="w-3 h-3" />
@@ -202,9 +280,19 @@ function RestaurantCard({ restaurant }: { restaurant: RestaurantStop['options'][
   );
 }
 
-// ─── FLIGHT CARD ────────────────────────────────────────────────────────────
+// ─── FLIGHT CARD (selectable) ────────────────────────────────────────────────
 
-function FlightCard({ flight, numPeople }: { flight: FlightSegment['options'][0]; numPeople: number }) {
+function FlightCard({
+  flight,
+  numPeople,
+  isSelected,
+  onSelect,
+}: {
+  flight: FlightSegment['options'][0];
+  numPeople: number;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
   const isCarRoute = flight.airline?.toLowerCase() === 'auto privata';
   const routeParts = flight.route?.split(/\s*(?:->|→)\s*/) || [];
   const totalPrice = flight.estimatedPrice * numPeople;
@@ -213,11 +301,24 @@ function FlightCard({ flight, numPeople }: { flight: FlightSegment['options'][0]
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass p-7 rounded-3xl hover:shadow-md transition-all group block relative border-2 border-transparent"
+      onClick={onSelect}
+      className={cn(
+        'glass p-7 rounded-3xl hover:shadow-md transition-all group block relative cursor-pointer',
+        isSelected
+          ? 'ring-2 ring-brand-accent scale-[1.01]'
+          : 'border-2 border-transparent'
+      )}
     >
+      {/* Selected badge */}
+      {isSelected && (
+        <div className="absolute -top-2 -right-2 z-10 bg-brand-accent text-white rounded-full w-7 h-7 flex items-center justify-center shadow-lg">
+          <Check className="w-4 h-4" />
+        </div>
+      )}
+
       {/* Verified badge */}
       <div className={cn(
-        "absolute -top-3 right-6 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm flex items-center gap-1",
+        "absolute -top-3 right-10 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm flex items-center gap-1",
         flight.verified === false
           ? "bg-amber-100 text-amber-700"
           : "bg-green-100 text-green-700"
@@ -229,9 +330,16 @@ function FlightCard({ flight, numPeople }: { flight: FlightSegment['options'][0]
         )}
       </div>
 
-      <div className="flex justify-between items-start mb-6">
+      {/* Selected label */}
+      {isSelected && (
+        <span className="text-[10px] font-bold uppercase tracking-widest bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md">
+          Selezionato
+        </span>
+      )}
+
+      <div className="flex justify-between items-start mb-6 mt-1">
         <div>
-          <p className="font-bold text-xl text-brand-ink">{flight.airline}</p>
+          <p className={cn('font-bold text-xl', isSelected ? 'text-brand-accent' : 'text-brand-ink')}>{flight.airline}</p>
           {flight.date && (
             <p className="text-[10px] font-bold text-brand-accent uppercase tracking-widest mt-1">Data: {flight.date}</p>
           )}
@@ -247,7 +355,7 @@ function FlightCard({ flight, numPeople }: { flight: FlightSegment['options'][0]
           </div>
         </div>
         <div className="text-right">
-          <p className="text-2xl font-bold text-brand-accent">€{totalPrice}</p>
+          <p className={cn('text-2xl font-bold', isSelected ? 'text-brand-accent' : 'text-brand-accent')}>€{totalPrice}</p>
           <p className="text-[10px] text-brand-ink/40 font-bold uppercase tracking-tighter">
             Totale per {numPeople} pers.
           </p>
@@ -299,6 +407,7 @@ function FlightCard({ flight, numPeople }: { flight: FlightSegment['options'][0]
           href={flight.bookingUrl}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
           className="text-sm font-bold text-brand-accent hover:underline flex items-center gap-1"
         >
           Prenota su {flight.airline} <ExternalLink className="w-3.5 h-3.5" />
@@ -308,15 +417,66 @@ function FlightCard({ flight, numPeople }: { flight: FlightSegment['options'][0]
   );
 }
 
+// ─── RUNNING TOTAL BAR ────────────────────────────────────────────────────────
+
+function RunningTotalBar({
+  accommodations,
+  flights,
+  numPeople,
+}: {
+  accommodations: AccommodationStop[];
+  flights?: FlightSegment[];
+  numPeople: number;
+}) {
+  const accTotal = accommodations.reduce((sum, stop) => {
+    const idx = stop.selectedIndex ?? 0;
+    const option = stop.options[idx];
+    const pricePerNight = option?.estimatedPricePerNight ?? 0;
+    const nights = stop.nights ?? 1;
+    return sum + pricePerNight * nights;
+  }, 0);
+
+  const flightTotal = (flights ?? []).reduce((sum, segment) => {
+    const idx = segment.selectedIndex ?? 0;
+    const option = segment.options[idx];
+    const pricePerPerson = option?.estimatedPrice ?? 0;
+    return sum + pricePerPerson * numPeople;
+  }, 0);
+
+  return (
+    <div className="glass p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-2">
+          <Hotel className="w-5 h-5 text-brand-accent" />
+          <span className="text-sm text-brand-ink/60">Alloggi selezionati:</span>
+          <span className="font-bold text-lg text-brand-ink">€{accTotal}</span>
+        </div>
+        <div className="hidden sm:block w-px h-6 bg-brand-ink/10" />
+        <div className="flex items-center gap-2">
+          <Plane className="w-5 h-5 text-brand-accent" />
+          <span className="text-sm text-brand-ink/60">Trasporti selezionati:</span>
+          <span className="font-bold text-lg text-brand-ink">€{flightTotal}</span>
+        </div>
+      </div>
+      <div className="text-sm text-brand-ink/50 italic">
+        Totale: <span className="font-bold text-brand-ink not-italic">€{accTotal + flightTotal}</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── PROPS ──────────────────────────────────────────────────────────────────
 
 export interface Step2AccommodationViewProps {
   data: AccommodationTransport;
   inputs: TravelInputs;
+  itinerary: ItineraryDraft;
   isLoading: boolean;
   loadingProgress?: string; // e.g. "Ricerca alloggi a Lima... (2/4 tappe)"
   onConfirm: () => void;
   onBack: () => void;
+  onAccommodationSelect: (stopIndex: number, optionIndex: number) => void;
+  onFlightSelect: (segmentIndex: number, optionIndex: number) => void;
 }
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
@@ -324,10 +484,13 @@ export interface Step2AccommodationViewProps {
 export default function Step2AccommodationView({
   data,
   inputs,
+  itinerary,
   isLoading,
   loadingProgress,
   onConfirm,
   onBack,
+  onAccommodationSelect,
+  onFlightSelect,
 }: Step2AccommodationViewProps) {
   const [expandedStops, setExpandedStops] = useState<Record<number, boolean>>({ 0: true });
 
@@ -336,6 +499,7 @@ export default function Step2AccommodationView({
   };
 
   const numPeople = inputs.people.adults + inputs.people.children.length;
+  const departureCity = inputs.departureCity || 'Città di partenza';
 
   // ── Loading State ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -409,7 +573,7 @@ export default function Step2AccommodationView({
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-12"
+          className="mb-8"
         >
           <h1 className="text-5xl mb-2 flex items-center gap-3">
             <Hotel className="w-9 h-9 text-brand-accent" /> Alloggi & Trasporti
@@ -418,6 +582,23 @@ export default function Step2AccommodationView({
             Le strutture selezionate per il tuo pernottamento e i mezzi di trasporto
           </p>
         </motion.section>
+
+        {/* TRIP TIMELINE */}
+        <TripTimeline stops={data.accommodations} departureCity={departureCity} />
+
+        {/* RUNNING TOTAL */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="mb-10"
+        >
+          <RunningTotalBar
+            accommodations={data.accommodations}
+            flights={data.flights}
+            numPeople={numPeople}
+          />
+        </motion.div>
 
         {/* FLIGHTS / TRANSPORT SECTION */}
         {data.flights && data.flights.length > 0 && (
@@ -433,7 +614,7 @@ export default function Step2AccommodationView({
                   <Plane className="w-7 h-7" /> Mezzo di Trasporto
                 </h2>
                 <p className="text-brand-ink/50 font-sans text-sm">
-                  Prezzi indicativi — verifica disponibilità e orari sui siti ufficiali
+                  Seleziona un'opzione per tratta — il prezzo scelto andrà nel budget
                 </p>
               </div>
             </div>
@@ -450,7 +631,13 @@ export default function Step2AccommodationView({
                   )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     {segment.options.map((flight, i) => (
-                      <FlightCard key={i} flight={flight} numPeople={numPeople} />
+                      <FlightCard
+                        key={i}
+                        flight={flight}
+                        numPeople={numPeople}
+                        isSelected={(segment.selectedIndex ?? 0) === i}
+                        onSelect={() => onFlightSelect(segmentIdx, i)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -466,10 +653,13 @@ export default function Step2AccommodationView({
           transition={{ delay: 0.2 }}
           className="mb-16"
         >
-          <div className="flex items-center gap-3 mb-8">
+          <div className="flex items-center gap-3 mb-4">
             <Hotel className="w-7 h-7" />
             <h2 className="text-4xl">Alloggi per tappa</h2>
           </div>
+          <p className="text-brand-ink/50 font-sans text-sm mb-8">
+            Seleziona un alloggio per ogni tappa — la scelta andrà nel budget finale
+          </p>
 
           <div className="space-y-6">
             {data.accommodations.map((stop, i) => (
@@ -516,7 +706,13 @@ export default function Step2AccommodationView({
                       <div className="px-6 pb-8 md:px-8 md:pb-10 border-t border-brand-ink/5 pt-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                           {stop.options.map((hotel, j) => (
-                            <HotelCard key={j} hotel={hotel} nights={stop.nights} />
+                            <HotelCard
+                              key={j}
+                              hotel={hotel}
+                              nights={stop.nights ?? undefined}
+                              isSelected={(stop.selectedIndex ?? 0) === j}
+                              onSelect={() => onAccommodationSelect(i, j)}
+                            />
                           ))}
                         </div>
                       </div>
@@ -567,6 +763,14 @@ export default function Step2AccommodationView({
           transition={{ delay: 0.4 }}
           className="sticky bottom-0 bg-white/90 backdrop-blur-md border-t border-brand-ink/5 py-4 -mx-6 px-6 -mb-8 z-40"
         >
+          {/* Running total */}
+          <div className="max-w-3xl mx-auto mb-3">
+            <RunningTotalBar
+              accommodations={data.accommodations}
+              flights={data.flights}
+              numPeople={numPeople}
+            />
+          </div>
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
             <button
               type="button"

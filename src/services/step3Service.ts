@@ -23,10 +23,11 @@ export function calculateBudget(
   const totalPeople = inputs.people.adults + inputs.people.children.length;
 
   // ─── 1. Flights ───
-  // Sum first option's estimatedPrice per segment, multiplied by totalPeople
+  // Use selectedIndex per segment, fallback to 0
   const flightItems = (step2.flights ?? []).map((segment) => {
-    const firstOption = segment.options[0];
-    const pricePerPerson = firstOption?.estimatedPrice ?? 0;
+    const idx = segment.selectedIndex ?? 0;
+    const selectedOption = segment.options[idx];
+    const pricePerPerson = selectedOption?.estimatedPrice ?? 0;
     return {
       segment,
       pricePerPerson,
@@ -37,10 +38,11 @@ export function calculateBudget(
   const flightsTotal = flightItems.reduce((sum, f) => sum + f.total, 0);
 
   // ─── 2. Accommodation ───
-  // For each stop, take the first option's estimatedPricePerNight * nights
+  // Use selectedIndex per stop, fallback to 0
   const accommodationItems = step2.accommodations.map((stop) => {
-    const firstOption = stop.options[0];
-    const pricePerNight = firstOption?.estimatedPricePerNight ?? 0;
+    const idx = stop.selectedIndex ?? 0;
+    const selectedOption = stop.options[idx];
+    const pricePerNight = selectedOption?.estimatedPricePerNight ?? 0;
     const nights = stop.nights ?? 1;
     const total = pricePerNight * nights;
     return {

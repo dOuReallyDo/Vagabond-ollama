@@ -7,6 +7,7 @@ import { z } from "zod";
 export const AccommodationStopSchema = z.object({
   stopName: z.string(),
   nights: z.number().nullish(),
+  selectedIndex: z.number().optional().default(0),
   options: z.array(
     z.object({
       name: z.string(),
@@ -53,6 +54,7 @@ export type RestaurantStop = z.infer<typeof RestaurantStopSchema>;
 // Flight segment
 export const FlightSegmentSchema = z.object({
   segmentName: z.string(),
+  selectedIndex: z.number().optional().default(0),
   options: z.array(
     z.object({
       airline: z.string(),
