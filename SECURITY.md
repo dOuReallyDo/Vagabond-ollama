@@ -31,7 +31,8 @@
 - All inputs validated with Zod schemas before processing
 - `TravelInputsSchema` enforces: `budget >= 100`, `departureCity >= 2 chars`, etc.
 - `ItineraryDraftSchema`, `AccommodationTransportSchema` (includes `selectedIndex` for user selection), `BudgetCalculationSchema` validate all AI output before rendering
-- `cleanEmptyStrings()` converts AI empty strings (`""`) to `null` before Zod validation
+- `cleanEmptyStrings()` converts AI empty strings (`""`) to `null` before Zod validation (applied in both step1Service and step2Service)
+- Markdown code blocks (`\`\`\`json...\`\`\``) are stripped from GLM-5.1 responses before JSON extraction in step2Service — prevents silent parse failures
 
 ## Content Security
 

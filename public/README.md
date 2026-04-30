@@ -7,7 +7,7 @@ Fork di [Vagabond AI](https://github.com/dOuReallyDo/Vagabond) migrato da Claude
 L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitica. Questo risolve i timeout di GLM-5.1 su viaggi complessi (14+ giorni):
 
 1. **Step 1 — Itinerario** (AI, 1 chiamata): destinazione, meteo, sicurezza, programma giorno per giorno, ispirazioni
-2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli): hotel, ristoranti, voli/treni per ogni tappa
+2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli, max 4000 token): hotel, ristoranti, voli/treni per ogni tappa
 3. **Step 3 — Budget** (JS puro, nessuna AI): calcolo automatico dei costi
 
 **Vantaggi:**

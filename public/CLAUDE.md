@@ -58,17 +58,23 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 ```
 
 **Step 1 — Itinerary** (`src/services/step1Service.ts`):
-- Single AI call generating: destinationOverview, weatherInfo, safetyAndHealth, itinerary, localTips, transportInfo, travelHighlights, mapPoints
+- Single AI call generating: destinationOverview, weatherInfo, safetyAndHealth, itinerary, localTips, transportInfo, travelHighlights, mapPoints, sources
 - NO flights, accommodations, restaurants, budget breakdown
-- `max_tokens: 8000` (vs 16000 monolithic)
+- `max_tokens: 16000` (increased from 12000 for long itineraries)
+- **Stopover**: `inputs.stopover` is included in the Step 1 prompt's DETTAGLI VIAGGIO section (`Stopover richiesto: ${inputs.stopover || "Nessuno"}`), ensuring the AI considers stopovers in itinerary planning. Present in both `generateItinerary()` and `buildCompactPrompt()`.
+- Auto-retry on truncation: if `finish_reason="length"` or JSON repair fails or `itinerary` is not an array, automatically retries with compact prompt (2 activities/day, shorter descriptions). Two attempts max.
 - Modifiable by user → invalidates Steps 2-3
-- Web search: 2-3 uses for local info
 
 **Step 2 — Accommodations + Transport** (`src/services/step2Service.ts`):
 - 1 AI call per stop (city) for hotels + restaurants, 1 call for flights
-- `max_tokens: 4000` per stop, `2000` for flights
+- `max_tokens: 4000` per stop, `4000` for flights (increased from 2000 — flight JSON with web_search results needs more tokens)
 - Retry with simpler prompt on failure (skip failed stops)
 - Progress: "Ricerca alloggi a {{city}}... (n/total)"
+- **Markdown code block stripping**: GLM-5.1 with `web_search` wraps JSON responses in `\`\`\`json...\`\`\`` markdown blocks. All 3 parse points (primary accommodations, retry accommodations, flights) strip these blocks before JSON extraction.
+- **`cleanEmptyStrings()`**: Applied before Zod parse in all 3 parse points (was already in step1Service but was missing from step2Service). GLM-5.1 returns `""` for nullish fields — Zod `.nullish()` rejects `""`.
+- **Flight validation**: Uses `.safeParse()` (not `.parse()`) with error logging, so parse failures don't throw.
+- **System message**: Flight search includes `"Sei un assistente che risponde SOLO in JSON. Nessun testo prima o dopo il JSON. Nessun markdown."` to reduce markdown wrapping.
+- **Diagnostic logging**: `[Step2-Flights] Raw response length/first 300 chars` logged before parsing; errors logged on parse failure.
 - NOT modifiable — to change, go back to Step 1 (invalidates 2-3)
 
 **Step 3 — Budget** (`src/services/step3Service.ts`):
@@ -89,9 +95,9 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 
 | Function | File | Model | max_tokens | Tool |
 |----------|------|-------|------------|------|
-| `generateItinerary()` | `step1Service.ts` | `glm-5.1` | 8000 | web_search |
-| `modifyItinerary()` | `step1Service.ts` | `glm-5.1` | 8000 | web_search |
-| `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 2000/flights | web_search |
+| `generateItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
+| `modifyItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
+| `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 4000/flights | web_search |
 | `calculateBudget()` | `step3Service.ts` | — (pure JS) | — | — |
 | `getDestinationCountries()` | `travelService.ts` | — (Nominatim) | — | — |
 | `summarizeAccommodationReviews()` | `travelService.ts` | `glm-5.1` | 1024 | web_search |
@@ -258,6 +264,14 @@ Never use `supabase.from().insert()` or `.select()` directly for saves — the J
 - Steps 2 and 3 are confirmed, not modified.
 - Step 3 is pure JS (no AI call) — instant calculation.
 - The feature flag `useV2Flow` (default: `true`) switches between 3-step and legacy monolithic flow.
+
+### Zod Pitfalls with AI APIs
+- **`.optional()` vs `.nullish()`**: GLM-5.1 returns `null` for missing fields, not `undefined`. Use `.nullish()` for all `z.string()` and `z.number()` fields. Keep `.optional()` only for `z.array()` and `z.object()`.
+- **Empty strings**: GLM-5.1 returns `""` for URLs it can't find. Use `cleanEmptyStrings()` before Zod validation to convert `""` → `null`. Apply in all parse points (Step 1 and Step 2).
+- **Markdown code blocks**: GLM-5.1 with `web_search` wraps JSON in `\`\`\`json...\`\`\`` blocks. Always strip these blocks before JSON extraction (`text.replace(/^```json\s*|^```\s*|```$/gm, "")`). Without this, `indexOf("{")` returns -1 and parsing fails silently.
+- **max_tokens**: Step 1 uses `max_tokens: 16000`. Step 2 flights uses `max_tokens: 4000` (increased from 2000).
+- **`.safeParse()` over `.parse()`**: Use `.safeParse()` for flight/accommodation validation in Step 2 so failures log errors instead of throwing.
+- **`safeParse(j)` vs `safeParse(json)`**: Always validate the cleaned data (`j` after `cleanEmptyStrings`), not the raw parsed JSON.
 
 ### Git Conflict Rule
 When rebasing causes conflicts, read both sides carefully. Trinity's fixes may overlap with ours; merge intelligently.

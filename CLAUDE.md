@@ -61,6 +61,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - Single AI call generating: destinationOverview, weatherInfo, safetyAndHealth, itinerary, localTips, transportInfo, travelHighlights, mapPoints, sources
 - NO flights, accommodations, restaurants, budget breakdown
 - `max_tokens: 16000` (increased from 12000 for long itineraries)
+- **Stopover**: `inputs.stopover` is included in the Step 1 prompt's DETTAGLI VIAGGIO section (`Stopover richiesto: ${inputs.stopover || "Nessuno"}`), ensuring the AI considers stopovers in itinerary planning. Present in both `generateItinerary()` and `buildCompactPrompt()`.
 - Auto-retry on truncation: if `finish_reason="length"` or JSON repair fails or `itinerary` is not an array, automatically retries with compact prompt (2 activities/day, shorter descriptions). Two attempts max.
 - Modifiable by user → invalidates Steps 2-3
 - Descriptions: 2-3 sentences for overview/highlights, 1-2 for activities
@@ -72,12 +73,17 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 
 **Step 2 — Accommodations + Transport** (`src/services/step2Service.ts`):
 - 1 AI call per stop (city) for hotels + restaurants, 1 call for flights
-- `max_tokens: 4000` per stop, `2000` for flights
+- `max_tokens: 4000` per stop, `4000` for flights (increased from 2000 — flight JSON with web_search results needs more tokens)
 - `extractStops()`: groups consecutive days by location, strips Italian prefixes, case-insensitive matching
 - Each stop returns 2-3 hotel options with `bookingUrl` + `officialUrl`
 - Each flight segment returns 2-3 transport options
 - Retry with simpler prompt on failure (skip failed stops)
 - Progress: "Ricerca alloggi a {{city}}... (n/total)"
+- **Markdown code block stripping**: GLM-5.1 with `web_search` wraps JSON responses in `\`\`\`json...\`\`\`` markdown blocks. All 3 parse points (primary accommodations, retry accommodations, flights) strip these blocks before JSON extraction. Without this, `text.indexOf("{")` returns -1 → "Nessun JSON valido" error → `flights = []` → transports section hidden.
+- **`cleanEmptyStrings()`**: Applied before Zod parse in all 3 parse points (was already in step1Service but was missing from step2Service). GLM-5.1 returns `""` for nullish fields (departureTime, arrivalTime, bookingUrl, duration) — Zod `.nullish()` rejects `""`, causing flight validation to fail silently.
+- **Flight validation**: Uses `.safeParse()` (not `.parse()`) with error logging, so parse failures don't throw and can be diagnosed.
+- **System message**: Flight search includes `"Sei un assistente che risponde SOLO in JSON. Nessun testo prima o dopo il JSON. Nessun markdown."` to reduce markdown wrapping.
+- **Diagnostic logging**: `[Step2-Flights] Raw response length/first 300 chars` logged before parsing; errors logged on parse failure.
 - **User selection**: `selectedIndex` field on AccommodationStop and FlightSegment — user clicks to select preferred option per stop/segment
 - **TripTimeline**: horizontal stop flow at top of page (e.g. "Milano → Lisbona (3 notti) → Porto (2gg) → Milano")
 - **RunningTotalBar**: live summary of selected accommodation + transport costs
@@ -105,7 +111,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 |----------|------|-------|------------|------|
 | `generateItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
 | `modifyItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
-| `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 2000/flights | web_search |
+| `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 4000/flights | web_search |
 | `calculateBudget()` | `step3Service.ts` | — (pure JS) | — | — |
 | `getDestinationCountries()` | `travelService.ts` | — (Nominatim) | — | — |
 | `summarizeAccommodationReviews()` | `travelService.ts` | `glm-5.1` | 1024 | web_search |
@@ -240,8 +246,8 @@ src/
 │   ├── step2-contract.ts            # AccommodationTransport schema (officialUrl + selectedIndex + nullish)
 │   └── step3-contract.ts            # BudgetCalculation schema (with nullish)
 ├── services/
-│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + auto-retry
-│   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops)
+│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + stopover in prompt + auto-retry
+│   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops + markdown stripping + cleanEmptyStrings + safeParse + system message)
 │   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, smart transport cost)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
@@ -296,9 +302,11 @@ Never use `supabase.from().insert()` or `.select()` directly for saves — the J
 ### Zod Pitfalls with AI APIs
 - **`.optional()` vs `.nullish()`**: GLM-5.1 returns `null` for missing fields, not `undefined`. Use `.nullish()` for all `z.string()` and `z.number()` fields. Keep `.optional()` only for `z.array()` and `z.object()`.
 - **Empty strings**: GLM-5.1 returns `""` for URLs it can't find. Use `cleanEmptyStrings()` before Zod validation to convert `""` → `null`.
-- **max_tokens**: Step 1 uses `max_tokens: 16000` (increased from 12000 for longer itineraries). If still truncated, auto-retry with compact prompt kicks in.
+- **Markdown code blocks**: GLM-5.1 with `web_search` wraps JSON in `\`\`\`json...\`\`\`` blocks instead of raw JSON. Always strip these blocks before JSON extraction (`text.replace(/^```json\s*|^```\s*|```$/gm, "")`). Without this, `indexOf("{")` returns -1 and parsing fails silently.
+- **max_tokens**: Step 1 uses `max_tokens: 16000` (increased from 12000 for longer itineraries). Step 2 flights uses `max_tokens: 4000` (increased from 2000). If still truncated, auto-retry with compact prompt kicks in (Step 1 only).
 - **JSON truncation**: GLM-5.1 may truncate JSON on long trips (7+ days). The code auto-retries with `buildCompactPrompt()` (fewer activities, shorter descriptions). Check `finish_reason` in logs — if "length", the response was cut off.
 - **`safeParse(j)` vs `safeParse(json)`**: Always validate the cleaned data (`j` after `cleanEmptyStrings`), not the raw parsed JSON.
+- **`.safeParse()` over `.parse()`**: Use `.safeParse()` for flight/accommodation validation so failures log errors instead of throwing. Step 2 flights uses `.safeParse()` with error logging.
 
 ### Git Conflict Rule
 When rebasing causes conflicts, read both sides carefully. Trinity's fixes may overlap with ours; merge intelligently.

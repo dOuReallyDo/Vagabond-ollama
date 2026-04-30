@@ -7,7 +7,7 @@ Fork di [Vagabond AI](https://github.com/dOuReallyDo/Vagabond) migrato da Claude
 L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitica. Questo risolve i timeout di GLM-5.1 su viaggi complessi (14+ giorni):
 
 1. **Step 1 — Itinerario** (AI, 1 chiamata, max 16k token): destinazione, meteo, sicurezza, programma giorno per giorno, fonti, mappa
-2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli): hotel con bookingUrl + officialUrl, ristoranti, voli/treni — **l'utente seleziona** alloggio e trasporto per ogni tappa
+2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli, max 4000 token): hotel con bookingUrl + officialUrl, ristoranti, voli/treni — **l'utente seleziona** alloggio e trasporto per ogni tappa
 3. **Step 3 — Budget** (JS puro, nessuna AI): calcolo automatico basato sulle **selezioni utente** con costTable espanso
 
 **Vantaggi:**
@@ -45,7 +45,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 │   FORM      │────►│  STEP 1          │────►│  STEP 2          │────►│  STEP 3      │
 │  (input)    │     │  ITINERARIO       │     │  ALLOGGI+TRASP   │     │  BUDGET       │
 │             │     │  AI (1 call)      │     │  AI (1 call/stop)│     │  Pure JS      │
-│             │     │  max 16k tokens   │     │  4k/stop, 2k flight│    │              │
+│             │     │  max 16k tokens   │     │  4k/stop, 4k flight│    │              │
 │             │     │  → Conferma ✏️    │     │  → Conferma ✔️   │     │  → Salva 💾   │
 │             │     │  (modificabile)   │     │  (no modifica)   │     │              │
 └─────────────┘     └──────────────────┘     └──────────────────┘     └──────────────┘
@@ -190,8 +190,10 @@ Nuova tabella per l'architettura 3-step:
 ## ⚠️ Note di Sviluppo
 
 - **Zod**: Usa `.nullish()` (non `.optional()`) per `z.string()` e `z.number()` — GLM-5.1 ritorna `null`
-- **cleanEmptyStrings()**: Sempre prima di `safeParse()` — GLM-5.1 ritorna `""` per campi vuoti
+- **cleanEmptyStrings()**: Sempre prima di `safeParse()` — GLM-5.1 ritorna `""` per campi vuoti. Applicare in tutti i parse point di Step 1 e Step 2
+- **Markdown code blocks**: GLM-5.1 con `web_search` wrappa JSON in `\`\`\`json...\`\`\``. Sempre strippare prima del parsing JSON (`text.replace(/^```json\s*|^```\s*|```$/gm, "")`)
 - **safeParse(j)**: Valida il dato pulito, non il JSON grezzo (`safeParse(json)` è un bug)
+- **safeParse() per voli**: Step 2 voli usa `.safeParse()` con error logging, non `.parse()`
 - **Supabase**: Mai usare il JS client per save/load — si blocca su token refresh. Usa REST API.
 - **Vercel**: Ogni endpoint API deve avere un `api/*.ts` serverless function, non solo `server.ts`
 - **Git**: Sempre `git pull` prima di pushare — Trinity lavora sullo stesso repo
