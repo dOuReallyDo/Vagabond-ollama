@@ -1,35 +1,48 @@
-# VAGABOND_Dou — Travel Planner AI
+# Vagabond-Ollama — Travel Planner AI (3-Step Architecture)
 
-Fork di [Vagabond AI](https://github.com/dOuReallyDo/Vagabond) con profilo viaggiatore, autenticazione e viaggi salvati.
+Fork di [Vagabond AI](https://github.com/dOuReallyDo/Vagabond) migrato da Claude a **GLM-5.1 via Zhipu API** con architettura a 3 step.
 
-## 🚀 Novità rispetto a Vagabond
+## 🆕 Novità Aprile 2026 — Architettura 3-Step
 
-- **🧑 Profilo Viaggiatore**: Età, tipo di viaggio, interessi, stile, mobilità, conoscenza destinazione — tutto personalizzabile con quick presets
-- **🔐 Autenticazione**: Login/Signup con email + Google OAuth via Supabase
-- **💾 Viaggi Salvati**: Ogni piano viene salvato automaticamente. Ritorna e ritrova tutto
-- **🎭 Quick Presets**: "Digital Nomad", "Luna di Miele", "Backpacker", "Silver Traveler" — un click per compilare il profilo
-- **💡 Note Intelligenti**: Suggerimenti cliccabili per arricchire le note del viaggio
-- **🧠 Prompt Enrichment**: Il profilo viaggiatore viene iniettato nel prompt Claude per itinerari ultra-personalizzati
-- **📱 localStorage Fallback**: Funziona anche senza login (profilo e viaggi salvati localmente)
-- **🔒 URL Safety**: 3-layer protection per tutti i link — whitelist, structural validation, Google Safe Browsing API
+L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitica. Questo risolve i timeout di GLM-5.1 su viaggi complessi (14+ giorni):
 
-## ✨ Caratteristiche Principali (ereditate)
+1. **Step 1 — Itinerario** (AI, 1 chiamata): destinazione, meteo, sicurezza, programma giorno per giorno, ispirazioni
+2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli): hotel, ristoranti, voli/treni per ogni tappa
+3. **Step 3 — Budget** (JS puro, nessuna AI): calcolo automatico dei costi
+
+**Vantaggi:**
+- Ogni step ha un prompt più piccolo → meno timeout
+- L'utente può **modificare l'itinerario** (Step 1) prima di cercare alloggi
+- Modifica Step 1 → Steps 2-3 invalidati e ricalcolati
+- Viaggi lunghi (14+ giorni) non si bloccano più
+
+Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2Flow = false`.
+
+## ✨ Caratteristiche Principali
+
 - **Itinerari Dinamici**: Generazione di piani giornalieri dettagliati
+- **3-Step Flow**: Itinerario → Alloggi → Budget con conferma progressiva
 - **Mappe Interattive**: Integrazione con Leaflet/OpenStreetMap
-- **Ricerca Real-Time**: Claude AI con web search per link reali
-- **Visual Experience**: Immagini dinamiche per ogni tappa
-- **Budget Intelligence**: Breakdown automatico dei costi
-- **Seasonal Awareness**: Suggerimenti basati sul periodo
+- **Ricerca Real-Time**: GLM-5.1 AI con web search per prezzi reali
+- **Budget Intelligence**: Calcolo automatico dei costi con dettaglio per categoria
+- **Profilo Viaggiatore**: Età, interessi, ritmo, mobilità — itinerari personalizzati
+- **Autenticazione**: Supabase Auth (email + Google OAuth)
+- **Viaggi Salvati**: Persistenza in 3 fasi (itinerario, alloggi, budget)
+- **URL Safety**: 3-layer protection per tutti i link
+- **localStorage Fallback**: Funziona anche senza login
 
-## 🔒 Sicurezza degli URL
+## 🏗️ Architettura 3-Step
 
-Il sistema implementa una protezione a 3 livelli per tutti i link generati dall'AI:
-
-1. **Prompt-level**: Claude riceve istruzioni esplicite di usare solo domini fidati
-2. **Post-processing**: `sanitizeTravelPlanAsync()` verifica ogni URL — i domini whitelist passano, gli URL strutturalmente sospetti (IP, shortener, TLD sospetti, HTTP, redirect params) vengono sostituiti con alternative sicure (Booking.com, TripAdvisor, Google Maps). I domini sconosciuti ma strutturalmente validi vengono verificati in batch via Safe Browsing API: se l'API conferma sicuri, l'URL originale viene **mantenuto** (es. siti ufficiali hotel).
-3. **Google Safe Browsing API**: gli URL su domini sconosciuti vengono verificati contro il database malware/phishing di Google in batch. Se l'API dice safe → l'URL originale è mantenuto. Se unsafe → rimpiazzato.
-
-Politica: gli URL non sicuri vengono **rimossi e sostituiti**, mai mostrati con avvisi.
+```
+┌─────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────┐
+│   FORM      │────►│  STEP 1          │────►│  STEP 2          │────►│  STEP 3      │
+│  (input)    │     │  ITINERARIO       │     │  ALLOGGI+TRASP   │     │  BUDGET       │
+│             │     │  AI (1 call)      │     │  AI (1 call/stop)│     │  Pure JS      │
+│             │     │                  │     │                  │     │              │
+│             │     │  → Conferma ✏️    │     │  → Conferma ✔️   │     │  → Salva 💾   │
+│             │     │  (modificabile)   │     │  (no modifica)   │     │              │
+└─────────────┘     └──────────────────┘     └──────────────────┘     └──────────────┘
+```
 
 ## 🛠️ Tech Stack
 
@@ -38,7 +51,7 @@ Politica: gli URL non sicuri vengono **rimossi e sostituiti**, mai mostrati con 
 | **Frontend** | React 18 + TypeScript + Tailwind CSS v4 |
 | **Animazioni** | Framer Motion |
 | **Icone** | Lucide React |
-| **AI** | Anthropic Claude (Sonnet 4 + Haiku) con web search |
+| **AI** | GLM-5.1 via Zhipu API (OpenAI-compatible) con web_search |
 | **Auth & DB** | Supabase (PostgreSQL + RLS + Auth) |
 | **Maps** | Leaflet + OpenStreetMap |
 | **Build** | Vite |
@@ -48,26 +61,40 @@ Politica: gli URL non sicuri vengono **rimossi e sostituiti**, mai mostrati con 
 
 ```
 src/
-├── App.tsx                    # Main app con 2-step form + auth
-├── main.tsx                   # Entry point (AuthProvider wrapper)
+├── App.tsx                          # Main app (3-step flow + legacy fallback)
 ├── shared/
-│   └── contract.ts            # Zod schemas (TravelInputs + TravelPlan)
+│   ├── contract.ts                  # v1 schemas (TravelPlan, TravelInputs)
+│   ├── contract-v2.ts               # v2 composed schema (TravelPlanV2)
+│   ├── step1-contract.ts            # ItineraryDraft schema
+│   ├── step2-contract.ts            # AccommodationTransport schema
+│   └── step3-contract.ts            # BudgetCalculation schema
 ├── services/
-│   └── travelService.ts       # Claude AI API + prompt enrichment
+│   ├── step1Service.ts              # generateItinerary() + modifyItinerary()
+│   ├── step2Service.ts              # searchAccommodationsAndTransport()
+│   ├── step3Service.ts              # calculateBudget() (pure JS)
+│   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
+│   └── unsplashService.ts           # Unsplash image search
 ├── components/
-│   ├── AuthForm.tsx            # Login/Signup UI
-│   ├── ProfileForm.tsx         # Profilo viaggiatore (età, interessi, stile)
-│   ├── SavedTrips.tsx          # Lista viaggi salvati
-│   ├── TravelMap.tsx           # Leaflet map component
-│   └── NoteSuggestions.tsx      # Clickable note suggestions
+│   ├── StepIndicator.tsx            # 3-step visual stepper
+│   ├── Step1ItineraryView.tsx       # Step 1: itinerary + confirm/modify
+│   ├── Step2AccommodationView.tsx   # Step 2: hotels + restaurants + flights
+│   ├── Step3BudgetView.tsx          # Step 3: budget breakdown + save
+│   ├── AuthForm.tsx                 # Login/Signup UI
+│   ├── ProfileForm.tsx              # Profilo viaggiatore
+│   ├── SavedTrips.tsx              # Lista viaggi salvati
+│   ├── TravelMap.tsx               # Leaflet map
+│   └── NoteSuggestions.tsx         # Clickable note suggestions
 ├── lib/
-│   ├── auth.tsx                # Auth context + hooks (Supabase)
-│   ├── storage.ts              # Profile + trips CRUD (Supabase + localStorage)
-│   ├── supabase.ts             # Supabase client
-│   ├── urlSafety.ts            # URL whitelist, validation, sanitization
-│   └── safeBrowsing.ts         # Google Safe Browsing API client + cache
+│   ├── auth.tsx                     # Auth context + hooks (Supabase)
+│   ├── storage.ts                   # v1: Supabase REST + localStorage fallback
+│   ├── storage-v2.ts               # v2: 3-step save/load/invalidation
+│   ├── supabase.ts                  # Supabase client
+│   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
+│   └── safeBrowsing.ts             # Google Safe Browsing API client + cache
 supabase/
-└── schema.sql                  # DB schema (profiles, saved_trips)
+├── schema.sql                       # DB schema (profiles, saved_trips, saved_trips_v2)
+└── migrations/
+    └── add_saved_trips_v2.sql       # Migration: saved_trips_v2 table
 ```
 
 ## 🔧 Setup
@@ -75,9 +102,9 @@ supabase/
 ### 1. Installazione
 
 ```bash
-git clone https://github.com/dOuReallyDo/VAGABOND_Dou.git
-cd VAGABOND_Dou
-npm install
+git clone https://github.com/dOuReallyDo/Vagabond-ollama.git
+cd Vagabond-ollama
+npm install --legacy-peer-deps
 ```
 
 ### 2. Variabili d'ambiente
@@ -85,16 +112,17 @@ npm install
 Crea un file `.env` nella root:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...
+ZHIPU_API_KEY=your-zhipu-api-key-here
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
-GOOGLE_SAFE_BROWSING_API_KEY=your-key
+GOOGLE_SAFE_BROWSING_API_KEY=***
+VITE_UNSPLASH_ACCESS_KEY=your-unsplash-access-key
 ```
 
 ### 3. Supabase Setup
 
 1. Crea un progetto su [supabase.com](https://supabase.com)
-2. Vai in **SQL Editor** ed esegui il contenuto di `supabase/schema.sql`
+2. Vai in **SQL Editor** ed esegui `supabase/schema.sql` (crea profiles + saved_trips + saved_trips_v2)
 3. Copia **Project URL** e **anon public key** in `.env`
 
 ### 4. Avvia in locale
@@ -103,38 +131,29 @@ GOOGLE_SAFE_BROWSING_API_KEY=your-key
 npm run dev
 ```
 
-L'app sarà disponibile su `http://localhost:3000`
+## 📊 Database Schema
 
-## 🔐 Autenticazione
+### `profiles` (RLS enabled)
+Collegata a `auth.users` tramite `id`. Contiene: `age_range`, `traveler_type`, `interests[]`, `pace`, `mobility`, `familiarity`, `display_name`.
 
-- **Email + Password**: Registrazione e login standard
-- **Google OAuth**: Login rapido con account Google (richiede configurazione in Supabase Dashboard)
-- **Guest Mode**: Funziona senza login — profilo e viaggi salvati in localStorage
-- **Migrazione**: Al primo login, i dati localStorage vengono migrati su Supabase
+### `saved_trips` (v1, legacy — RLS enabled)
+Tabella originale. `id`, `user_id`, `trip_name`, `destination`, `inputs` (JSONB), `plan` (JSONB), `is_favorite`.
 
-### Flusso User Menu (loggati)
+### `saved_trips_v2` (v2, 3-step — RLS enabled)
+Nuova tabella per l'architettura 3-step:
+- `id`, `user_id`, `trip_name`, `destination`, `inputs` (JSONB)
+- `step1_data` (JSONB) + `step1_completed` (boolean)
+- `step2_data` (JSONB) + `step2_completed` (boolean)
+- `step3_data` (JSONB) + `step3_completed` (boolean)
+- `is_complete`, `is_favorite`, `created_at`, `updated_at`
 
-Dal menu in alto a destra (avatar + email):
-- **🎭 Il mio profilo viaggiatore** → Modal con ProfileForm (solo "Salva" + "Annulla"), salva su Supabase `profiles`
-- **📍 I miei viaggi** → Vista saved trips da Supabase (ricaricata ad ogni apertura)
-- **🔑 Cambia password** → Modal con nuova password + conferma, usa `supabase.auth.updateUser()`
-- **🚪 Logout** → `signOut()` + reset immediato dello stato React + `supabase.auth.signOut()`
+## 🔒 Sicurezza degli URL
 
-### Persistenza Sessione
-- **Nessuna persistenza**: `persistSession: false` nel client Supabase — ogni apertura/ricaricamento della pagina parte come guest
-- Il login è richiesto ad ogni sessione; non ci sono stati a metà o token scaduti da recuperare
-- La sessione è in-memory per la durata della tab; il token viene refreshato automaticamente da Supabase durante la sessione
+3-layer protection:
+1. **Prompt-level**: istruzioni esplicite per domini fidati
+2. **Post-processing**: `sanitizeTravelPlanAsync()` verifica ogni URL
+3. **Google Safe Browsing API**: verifica batch per domini sconosciuti
 
-## 🧑 Profilo Viaggiatore
+## License
 
-Il profilo include:
-- Fascia d'età (18-25, 26-35, 36-45, 46-55, 56-65, 65+)
-- Tipo di viaggio (Solo/a, Coppia romantica, Famiglia, Gruppo amici, Business)
-- Interessi (Cultura, Mare, Food & Wine, Natura, Sport, Shopping, Nightlife, Benessere, Foto, Avventura)
-- Stile di viaggio (Slow & relax, Equilibrato, Avventura intensa)
-- Mobilità (Nessuna limitazione, Ridotta, A carrozzina)
-- Conoscenza destinazione (Mai stato qui, Ci sono già stato, Esperto)
-
-## 📄 Licenza
-
-Fork di Vagabond AI — vedere il repo originale per la licenza.
+Apache-2.0
