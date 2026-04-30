@@ -89,9 +89,11 @@ export interface Step1ItineraryViewProps {
   data: ItineraryDraft;
   inputs: TravelInputs;
   isLoading: boolean;
-  onConfirm: () => void;
-  onModify: (request: string) => void;
+  onConfirm?: () => void;
+  onModify?: (request: string) => void;
   unsplashImages?: Map<string, string>;
+  readOnly?: boolean;
+  onNavigateNext?: () => void;
 }
 
 // ─── IMAGE ERROR HANDLER ─────────────────────────────────────────────────────
@@ -115,6 +117,8 @@ export default function Step1ItineraryView({
   onConfirm,
   onModify,
   unsplashImages,
+  readOnly,
+  onNavigateNext,
 }: Step1ItineraryViewProps) {
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({ 0: true });
   const [showModifyInput, setShowModifyInput] = useState(false);
@@ -651,6 +655,7 @@ export default function Step1ItineraryView({
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-md border-t border-brand-ink/5 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
         <div className="max-w-7xl mx-auto px-6 py-4">
           {/* Modify input — appears inline when "Modifica" is clicked */}
+          {!readOnly && (
           <AnimatePresence>
             {showModifyInput && (
               <motion.div
@@ -705,28 +710,42 @@ export default function Step1ItineraryView({
               </motion.div>
             )}
           </AnimatePresence>
+          )}
 
           {/* Action buttons */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <button
-              onClick={() => setShowModifyInput(!showModifyInput)}
-              disabled={isLoading}
-              className="flex items-center justify-center gap-2 px-6 py-4 rounded-2xl font-bold border-2 border-brand-ink/10 text-brand-ink/70 hover:border-brand-accent hover:text-brand-accent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              ✏️ Modifica itinerario
-            </button>
-            <button
-              onClick={onConfirm}
-              disabled={isLoading}
-              className="flex items-center justify-center gap-2 bg-brand-accent text-white px-8 py-4 rounded-2xl font-bold hover:bg-brand-accent/85 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-brand-accent/25"
-            >
-              {isLoading ? (
-                <><Loader2 className="w-5 h-5 animate-spin" /> Elaborazione...</>
-              ) : (
-                '✓ Conferma itinerario'
+          {readOnly ? (
+            <div className="flex justify-end">
+              {onNavigateNext && (
+                <button
+                  onClick={onNavigateNext}
+                  className="flex items-center justify-center gap-2 bg-brand-accent text-white px-8 py-4 rounded-2xl font-bold hover:bg-brand-accent/85 transition-all shadow-lg shadow-brand-accent/25"
+                >
+                  Avanti →
+                </button>
               )}
-            </button>
-          </div>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <button
+                onClick={() => setShowModifyInput(!showModifyInput)}
+                disabled={isLoading}
+                className="flex items-center justify-center gap-2 px-6 py-4 rounded-2xl font-bold border-2 border-brand-ink/10 text-brand-ink/70 hover:border-brand-accent hover:text-brand-accent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                ✏️ Modifica itinerario
+              </button>
+              <button
+                onClick={onConfirm}
+                disabled={isLoading}
+                className="flex items-center justify-center gap-2 bg-brand-accent text-white px-8 py-4 rounded-2xl font-bold hover:bg-brand-accent/85 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-brand-accent/25"
+              >
+                {isLoading ? (
+                  <><Loader2 className="w-5 h-5 animate-spin" /> Elaborazione...</>
+                ) : (
+                  '✓ Conferma itinerario'
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

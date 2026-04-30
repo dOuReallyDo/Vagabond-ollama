@@ -26,6 +26,7 @@ export interface Step3BudgetViewProps {
   onSave: () => void;
   onBack: () => void;
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
+  readOnly?: boolean;
 }
 
 // ─── FORMAT HELPERS ──────────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ export default function Step3BudgetView({
   onSave,
   onBack,
   saveStatus = 'idle',
+  readOnly,
 }: Step3BudgetViewProps) {
   const [costTableExpanded, setCostTableExpanded] = useState(true);
 
@@ -322,31 +324,35 @@ export default function Step3BudgetView({
               onClick={onBack}
               className="flex items-center gap-2 text-sm text-brand-ink/70 hover:text-brand-ink transition-colors px-4 py-3 rounded-xl hover:bg-brand-ink/5"
             >
-              <ArrowLeft className="w-4 h-4" /> Torna agli alloggi
+              <ArrowLeft className="w-4 h-4" /> {readOnly ? '← Indietro' : 'Torna agli alloggi'}
             </button>
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={saveStatus === 'saving' || saveStatus === 'saved'}
-              className={cn(
-                "flex items-center gap-2 px-6 py-3 rounded-full font-bold text-sm shadow-lg transition-all",
-                saveStatus === 'saved'
-                  ? 'bg-emerald-500 text-white shadow-emerald-500/20'
-                  : saveStatus === 'error'
-                    ? 'bg-red-500 text-white shadow-red-500/20'
-                    : 'bg-brand-accent text-white shadow-brand-accent/20 hover:bg-brand-accent/90'
-              )}
-            >
-              {saveStatus === 'saved' ? (
-                <><CheckCircle2 className="w-4 h-4" /> Salvato!</>
-              ) : saveStatus === 'saving' ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Salvataggio...</>
-              ) : saveStatus === 'error' ? (
-                <>Errore — riprova</>
-              ) : (
-                <><Download className="w-4 h-4" /> Salva viaggio</>
-              )}
-            </button>
+            {readOnly ? (
+              <span className="text-sm text-brand-ink/40 italic">Visualizzazione viaggio salvato</span>
+            ) : (
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={saveStatus === 'saving' || saveStatus === 'saved'}
+                className={cn(
+                  "flex items-center gap-2 px-6 py-3 rounded-full font-bold text-sm shadow-lg transition-all",
+                  saveStatus === 'saved'
+                    ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                    : saveStatus === 'error'
+                      ? 'bg-red-500 text-white shadow-red-500/20'
+                      : 'bg-brand-accent text-white shadow-brand-accent/20 hover:bg-brand-accent/90'
+                )}
+              >
+                {saveStatus === 'saved' ? (
+                  <><CheckCircle2 className="w-4 h-4" /> Salvato!</>
+                ) : saveStatus === 'saving' ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Salvataggio...</>
+                ) : saveStatus === 'error' ? (
+                  <>Errore — riprova</>
+                ) : (
+                  <><Download className="w-4 h-4" /> Salva viaggio</>
+                )}
+              </button>
+            )}
           </div>
         </motion.div>
       </div>

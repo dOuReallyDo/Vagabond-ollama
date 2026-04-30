@@ -3187,6 +3187,7 @@ export default function App() {
   const [step1Data, setStep1Data] = useState<ItineraryDraft | null>(null);
   const [step2Data, setStep2Data] = useState<AccommodationTransport | null>(null);
   const [step3Data, setStep3Data] = useState<BudgetCalculation | null>(null);
+  const [viewingSavedTrip, setViewingSavedTrip] = useState(false);
   const [step1Confirmed, setStep1Confirmed] = useState(false);
   const [step2Confirmed, setStep2Confirmed] = useState(false);
   const [step3Confirmed, setStep3Confirmed] = useState(false);
@@ -3508,6 +3509,7 @@ export default function App() {
     setActiveStep(1);
     setCurrentTripId(null);
     setStep2LoadingProgress('');
+    setViewingSavedTrip(false);
   };
 
   const handleModify = async (request: string) => {
@@ -3573,18 +3575,20 @@ export default function App() {
             </div>
           </div>
           {/* Step 1: Itinerary */}
-          {activeStep === 1 && !step1Confirmed && (
+          {activeStep === 1 && step1Data && (viewingSavedTrip || !step1Confirmed) && (
             <Step1ItineraryView
               data={step1Data}
               inputs={lastInputs!}
               isLoading={loading}
-              onConfirm={confirmItinerary}
-              onModify={handleModifyItinerary}
+              onConfirm={viewingSavedTrip ? undefined : confirmItinerary}
+              onModify={viewingSavedTrip ? undefined : handleModifyItinerary}
               unsplashImages={unsplashImages}
+              readOnly={viewingSavedTrip}
+              onNavigateNext={viewingSavedTrip ? () => setActiveStep(2) : undefined}
             />
           )}
-          {/* Step 1 confirmed but waiting for Step 2 to load — show summary */}
-          {activeStep === 1 && step1Confirmed && (
+          {/* Step 1 confirmed but waiting for Step 2 to load — show summary (creation mode only) */}
+          {activeStep === 1 && !viewingSavedTrip && step1Confirmed && (
             <div className="max-w-4xl mx-auto px-6 pb-12 text-center">
               <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
               <h2 className="text-2xl font-serif text-brand-ink mb-2">Itinerario confermato!</h2>
@@ -3599,21 +3603,23 @@ export default function App() {
             </div>
           )}
           {/* Step 2: Accommodations & Transport */}
-          {activeStep === 2 && step2Data && !step2Confirmed && (
+          {activeStep === 2 && step2Data && (viewingSavedTrip || !step2Confirmed) && (
             <Step2AccommodationView
               data={step2Data}
               inputs={lastInputs!}
               itinerary={step1Data!}
               isLoading={loading}
               loadingProgress={step2LoadingProgress}
-              onConfirm={confirmAccommodations}
-              onBack={() => { setActiveStep(1); setStep2Confirmed(false); }}
+              onConfirm={viewingSavedTrip ? () => {} : confirmAccommodations}
+              onBack={viewingSavedTrip ? () => setActiveStep(1) : () => { setActiveStep(1); setStep2Confirmed(false); }}
               onAccommodationSelect={handleAccommodationSelect}
               onFlightSelect={handleFlightSelect}
+              readOnly={viewingSavedTrip}
+              onNavigateNext={viewingSavedTrip ? () => setActiveStep(3) : undefined}
             />
           )}
-          {/* Step 2 confirmed but waiting */}
-          {activeStep === 2 && step2Confirmed && (
+          {/* Step 2 confirmed but waiting (creation mode only) */}
+          {activeStep === 2 && !viewingSavedTrip && step2Confirmed && (
             <div className="max-w-4xl mx-auto px-6 pb-12 text-center">
               <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
               <h2 className="text-2xl font-serif text-brand-ink mb-2">Alloggi confermati!</h2>
@@ -3634,8 +3640,9 @@ export default function App() {
               totalPeople={lastInputs!.people.adults + lastInputs!.people.children.length}
               totalDays={Math.round((new Date(lastInputs!.endDate).getTime() - new Date(lastInputs!.startDate).getTime()) / (1000*60*60*24)) + 1}
               onSave={saveFullTrip}
-              onBack={() => setActiveStep(2)}
+              onBack={viewingSavedTrip ? () => setActiveStep(2) : () => setActiveStep(2)}
               saveStatus={step3SaveStatus}
+              readOnly={viewingSavedTrip}
             />
           )}
           {/* Back to form button */}
@@ -3674,7 +3681,7 @@ export default function App() {
       )}
       {/* ─── Legacy monolithic flow ────────────────────────────────────────── */}
       {!loading && !error && !useV2Flow && plan && <ResultsView plan={plan} inputs={lastInputs} onReset={() => setPlan(null)} onShowTrips={() => { setPlan(null); setShowSavedTripsFromResults(true); }} onModify={handleModify} onUpdatePlan={(newPlan) => setPlan(newPlan)} onShowAuth={() => setShowAuth(true)} planJustSaved={planJustSaved} onPlanJustSavedAck={() => setPlanJustSaved(false)} onTripSaved={() => { setTripsVersion(v => v + 1); }} />}
-      {!loading && !error && !plan && !step1Data && <FormView onSubmit={handleSubmit} loading={loading} initialShowTrips={showSavedTripsFromResults} onShowTripsDone={() => setShowSavedTripsFromResults(false)} onLoadTrip={(trip) => { setLastInputs(trip.inputs); setPlan(trip.plan); }} onLoadTripV2={(trip) => { setLastInputs(trip.inputs); setCurrentTripId(trip.id); setStep1Data(trip.step1_data); setStep1Confirmed(trip.step1_completed); setStep2Data(trip.step2_data); setStep2Confirmed(trip.step2_completed); setStep3Data(trip.step3_data); setStep3Confirmed(trip.step3_completed); if (!trip.step1_completed) { setActiveStep(1); } else if (!trip.step2_completed) { setActiveStep(2); } else { setActiveStep(3); } }} useV2Flow={useV2Flow} tripsVersion={tripsVersion} />}
+      {!loading && !error && !plan && !step1Data && <FormView onSubmit={handleSubmit} loading={loading} initialShowTrips={showSavedTripsFromResults} onShowTripsDone={() => setShowSavedTripsFromResults(false)} onLoadTrip={(trip) => { setLastInputs(trip.inputs); setPlan(trip.plan); }} onLoadTripV2={(trip) => { setLastInputs(trip.inputs); setCurrentTripId(trip.id); setStep1Data(trip.step1_data); setStep1Confirmed(trip.step1_completed); setStep2Data(trip.step2_data); setStep2Confirmed(trip.step2_completed); setStep3Data(trip.step3_data); setStep3Confirmed(trip.step3_completed); setViewingSavedTrip(true); setActiveStep(1); }} useV2Flow={useV2Flow} tripsVersion={tripsVersion} />}
 
       {/* Login prompt modal for saving trips when not authenticated */}
       <AnimatePresence>

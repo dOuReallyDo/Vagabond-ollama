@@ -477,6 +477,8 @@ export interface Step2AccommodationViewProps {
   onBack: () => void;
   onAccommodationSelect: (stopIndex: number, optionIndex: number) => void;
   onFlightSelect: (segmentIndex: number, optionIndex: number) => void;
+  readOnly?: boolean;
+  onNavigateNext?: () => void;
 }
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
@@ -491,6 +493,8 @@ export default function Step2AccommodationView({
   onBack,
   onAccommodationSelect,
   onFlightSelect,
+  readOnly,
+  onNavigateNext,
 }: Step2AccommodationViewProps) {
   const [expandedStops, setExpandedStops] = useState<Record<number, boolean>>({ 0: true });
 
@@ -636,7 +640,7 @@ export default function Step2AccommodationView({
                         flight={flight}
                         numPeople={numPeople}
                         isSelected={(segment.selectedIndex ?? 0) === i}
-                        onSelect={() => onFlightSelect(segmentIdx, i)}
+                        onSelect={readOnly ? () => {} : () => onFlightSelect(segmentIdx, i)}
                       />
                     ))}
                   </div>
@@ -658,7 +662,10 @@ export default function Step2AccommodationView({
             <h2 className="text-4xl">Alloggi per tappa</h2>
           </div>
           <p className="text-brand-ink/50 font-sans text-sm mb-8">
-            Seleziona un alloggio per ogni tappa — la scelta andrà nel budget finale
+            {readOnly
+              ? 'Alloggi selezionati per ogni tappa'
+              : 'Seleziona un alloggio per ogni tappa — la scelta andrà nel budget finale'
+            }
           </p>
 
           <div className="space-y-6">
@@ -711,7 +718,7 @@ export default function Step2AccommodationView({
                               hotel={hotel}
                               nights={stop.nights ?? undefined}
                               isSelected={(stop.selectedIndex ?? 0) === j}
-                              onSelect={() => onAccommodationSelect(i, j)}
+                              onSelect={readOnly ? () => {} : () => onAccommodationSelect(i, j)}
                             />
                           ))}
                         </div>
@@ -777,15 +784,27 @@ export default function Step2AccommodationView({
               onClick={onBack}
               className="flex items-center gap-2 text-sm text-brand-ink/70 hover:text-brand-ink transition-colors px-4 py-3 rounded-xl hover:bg-brand-ink/5"
             >
-              <ArrowLeft className="w-4 h-4" /> Torna all'itinerario
+              <ArrowLeft className="w-4 h-4" /> {readOnly ? '← Indietro' : "Torna all'itinerario"}
             </button>
-            <button
-              type="button"
-              onClick={onConfirm}
-              className="flex items-center gap-2 bg-brand-accent text-white px-6 py-3 rounded-full font-bold text-sm hover:bg-brand-accent/90 transition-colors shadow-lg shadow-brand-accent/20"
-            >
-              Conferma alloggi e trasporti <CheckCircle2 className="w-4 h-4" />
-            </button>
+            {readOnly ? (
+              onNavigateNext && (
+                <button
+                  type="button"
+                  onClick={onNavigateNext}
+                  className="flex items-center gap-2 bg-brand-accent text-white px-6 py-3 rounded-full font-bold text-sm hover:bg-brand-accent/90 transition-colors shadow-lg shadow-brand-accent/20"
+                >
+                  Avanti →
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={onConfirm}
+                className="flex items-center gap-2 bg-brand-accent text-white px-6 py-3 rounded-full font-bold text-sm hover:bg-brand-accent/90 transition-colors shadow-lg shadow-brand-accent/20"
+              >
+                Conferma alloggi e trasporti <CheckCircle2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </motion.div>
       </div>
