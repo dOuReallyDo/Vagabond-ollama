@@ -88,6 +88,13 @@ export const ItineraryDraftSchema = z.object({
       type: z.string().nullish(),
     })
   ).optional(),
+  sources: z.array(
+    z.object({
+      title: z.string(),
+      url: z.string(),
+      type: z.string(),
+    })
+  ).optional(),
 });
 
 export type ItineraryDraft = z.infer<typeof ItineraryDraftSchema>;

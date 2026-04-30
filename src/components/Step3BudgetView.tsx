@@ -10,7 +10,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Euro, Plane, Hotel, MapPin, Utensils, Train, AlertTriangle,
-  CheckCircle2, ChevronDown, ArrowLeft, Download, ShieldCheck,
+  CheckCircle2, ChevronDown, ArrowLeft, Download, ShieldCheck, Loader2,
 } from 'lucide-react';
 import { cn } from '../App';
 import type { BudgetCalculation } from '../shared/step3-contract';
@@ -25,6 +25,7 @@ export interface Step3BudgetViewProps {
   totalDays: number;
   onSave: () => void;
   onBack: () => void;
+  saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
 }
 
 // ─── FORMAT HELPERS ──────────────────────────────────────────────────────────
@@ -53,8 +54,9 @@ export default function Step3BudgetView({
   totalDays,
   onSave,
   onBack,
+  saveStatus = 'idle',
 }: Step3BudgetViewProps) {
-  const [costTableExpanded, setCostTableExpanded] = useState(false);
+  const [costTableExpanded, setCostTableExpanded] = useState(true);
 
   const { budgetBreakdown, budgetWarning, costTable } = data;
   const estimatedTotal = budgetBreakdown.totalEstimated;
@@ -325,9 +327,25 @@ export default function Step3BudgetView({
             <button
               type="button"
               onClick={onSave}
-              className="flex items-center gap-2 bg-brand-accent text-white px-6 py-3 rounded-full font-bold text-sm hover:bg-brand-accent/90 transition-colors shadow-lg shadow-brand-accent/20"
+              disabled={saveStatus === 'saving' || saveStatus === 'saved'}
+              className={cn(
+                "flex items-center gap-2 px-6 py-3 rounded-full font-bold text-sm shadow-lg transition-all",
+                saveStatus === 'saved'
+                  ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                  : saveStatus === 'error'
+                    ? 'bg-red-500 text-white shadow-red-500/20'
+                    : 'bg-brand-accent text-white shadow-brand-accent/20 hover:bg-brand-accent/90'
+              )}
             >
-              Salva viaggio 💾
+              {saveStatus === 'saved' ? (
+                <><CheckCircle2 className="w-4 h-4" /> Salvato!</>
+              ) : saveStatus === 'saving' ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Salvataggio...</>
+              ) : saveStatus === 'error' ? (
+                <>Errore — riprova</>
+              ) : (
+                <><Download className="w-4 h-4" /> Salva viaggio</>
+              )}
             </button>
           </div>
         </motion.div>

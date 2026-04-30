@@ -3176,9 +3176,64 @@ export default function App() {
   const [step3Confirmed, setStep3Confirmed] = useState(false);
   const [currentTripId, setCurrentTripId] = useState<string | null>(null);
   const [step2LoadingProgress, setStep2LoadingProgress] = useState('');
+  const [step3SaveStatus, setStep3SaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Flag: true = use 3-step flow, false = use legacy monolithic flow
   const [useV2Flow, setUseV2Flow] = useState(true);
+
+  // ── Unsplash images for v2 (3-step) flow ──────────────────────────────────
+  const [unsplashImages, setUnsplashImages] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!step1Data) return;
+    let cancelled = false;
+    const loadImages = async () => {
+      const newMap = new Map<string, string>();
+      const destination = step1Data.destinationOverview?.title || lastInputs?.destination || 'travel';
+      const country = lastInputs?.country || '';
+
+      // Keywords to search: hero, attractions, notable activities
+      const keywords: string[] = [];
+
+      // Hero image
+      keywords.push(`${destination} ${country} landscape`.trim());
+
+      // Attractions
+      for (const attr of (step1Data.destinationOverview?.attractions || []).slice(0, 6)) {
+        if (attr.name) keywords.push(`${attr.name} ${destination}`);
+      }
+
+      // Notable itinerary activities (skip generic ones)
+      const GENERIC = ['check out', 'checkout', 'check-in', 'check in', 'checkin', 'colazione', 'partenza', 'riposo', 'tempo libero', 'notte in', 'pernottamento'];
+      for (const day of (step1Data.itinerary || []).slice(0, 5)) {
+        for (const act of (day.activities || []).slice(0, 4)) {
+          const text = ((act.name || '') + ' ' + (act.description || '')).toLowerCase();
+          if (GENERIC.some(kw => text.includes(kw))) continue;
+          if (act.name && act.name.length > 3) {
+            const loc = act.location || destination;
+            keywords.push(`${act.name} ${loc}`);
+          }
+        }
+      }
+
+      // Batch search with stagger (max 15 queries to respect rate limits)
+      const uniqueKeywords = [...new Set(keywords)].slice(0, 15);
+      for (let i = 0; i < uniqueKeywords.length; i++) {
+        if (cancelled) return;
+        // Stagger: 300ms between requests
+        if (i > 0) await new Promise(r => setTimeout(r, 300));
+        const kw = uniqueKeywords[i];
+        const url = await searchUnsplashImage(kw, 'landscape');
+        if (url) {
+          newMap.set(kw.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(), url);
+        }
+      }
+
+      if (!cancelled) setUnsplashImages(newMap);
+    };
+    loadImages();
+    return () => { cancelled = true; };
+  }, [step1Data?.destinationOverview?.title, lastInputs?.destination]);
 
   // NON auto-salviamo alla generazione: il salvataggio è esplicito (pulsante "Salva Itinerario")
   // Se l'utente non è loggato mostriamo il prompt di login
@@ -3374,13 +3429,20 @@ export default function App() {
 
   // ─── Step 3: Save completed trip ──────────────────────────────────────────
   const saveFullTrip = async () => {
+    if (step3SaveStatus === 'saving' || step3SaveStatus === 'saved') return;
+    setStep3SaveStatus('saving');
     setStep3Confirmed(true);
     if (currentTripId) {
       try {
         await markComplete(currentTripId, user?.id);
+        setStep3SaveStatus('saved');
       } catch (e) {
         console.error('[Step3] markComplete failed:', e);
+        setStep3SaveStatus('error');
+        setTimeout(() => setStep3SaveStatus('idle'), 3000);
       }
+    } else {
+      setStep3SaveStatus('saved');
     }
     // Increment tripsVersion to trigger reload
     setTripsVersion(v => v + 1);
@@ -3472,6 +3534,7 @@ export default function App() {
               isLoading={loading}
               onConfirm={confirmItinerary}
               onModify={handleModifyItinerary}
+              unsplashImages={unsplashImages}
             />
           )}
           {/* Step 1 confirmed but waiting for Step 2 to load — show summary */}
@@ -3523,6 +3586,7 @@ export default function App() {
               totalDays={Math.round((new Date(lastInputs!.endDate).getTime() - new Date(lastInputs!.startDate).getTime()) / (1000*60*60*24)) + 1}
               onSave={saveFullTrip}
               onBack={() => setActiveStep(2)}
+              saveStatus={step3SaveStatus}
             />
           )}
           {/* Back to form button */}

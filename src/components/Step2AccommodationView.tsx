@@ -140,16 +140,28 @@ function HotelCard({ hotel, nights }: { hotel: AccommodationStop['options'][0]; 
             </span>
           )}
         </div>
-        {hotel.bookingUrl && (
-          <a
-            href={hotel.bookingUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs font-bold uppercase tracking-widest text-brand-accent hover:underline flex items-center gap-1"
-          >
-            Prenota <ExternalLink className="w-3 h-3" />
-          </a>
-        )}
+        <div className="flex items-center gap-3">
+          {hotel.officialUrl && (
+            <a
+              href={hotel.officialUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-bold uppercase tracking-widest text-brand-ink/60 hover:text-brand-ink flex items-center gap-1"
+            >
+              Sito ufficiale <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+          {hotel.bookingUrl && (
+            <a
+              href={hotel.bookingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-bold uppercase tracking-widest text-brand-accent hover:underline flex items-center gap-1"
+            >
+              Prenota <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
       </div>
     </motion.div>
   );

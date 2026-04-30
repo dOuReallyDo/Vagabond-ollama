@@ -261,11 +261,14 @@ Per TUTTI i campi URL nel JSON (sourceUrl, imageUrl, heroImageUrl), segui queste
 - Se non riesci a trovare un link sicuro per una risorsa, lascia il campo URL vuoto (undefined/null) piuttosto che inserire un link dubbio.
 
 REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
-- Brevità ASSOLUTA: ogni stringa di testo MAX 5 parole. Niente frasi complete.
-- Attività per giorno: MAX 4 attività (mattina, pranzo, pomeriggio, sera).
+- Descrizioni: frasi brevi ma complete. Destination overview, travelHighlights: 2-3 frasi persuasive e coinvolgenti che facciano venire voglia di fare il viaggio.
+- Attività per giorno: MAX 4 attività (mattina, pranzo, pomeriggio, sera). Descrizioni attività: 1-2 frasi concise.
+- description, whyChosen, whyUnforgettable: 2-3 frasi descrittive e persuasive.
 - Attrazioni: MAX 3 elementi.
 - localTips: MAX 3 elementi.
 - JSON: SOLO il JSON, zero markdown, zero commenti.
+
+FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti. Minimo 3, massimo 8 fonti.
 
 ITINERARIO GIORNALIERO:
 ${dateList}
@@ -275,11 +278,11 @@ Struttura JSON richiesta (DEVI riempire TUTTI i campi con dati reali):
   "budgetWarning": "Avviso solo se il mezzo di trasporto scelto non è compatibile con la tratta, altrimenti null",
   "destinationOverview": {
     "title": "Nome Destinazione",
-    "description": "Breve descrizione",
+    "description": "2-3 frasi descrittive e coinvolgenti",
     "tagline": "Slogan",
     "heroImageUrl": "URL immagine",
     "attractions": [
-      { "name": "A", "description": "D", "category": "C", "estimatedVisitTime": "1h", "lat": 0, "lng": 0 }
+      { "name": "A", "description": "2-3 frasi descrittive", "category": "C", "estimatedVisitTime": "1h", "lat": 0, "lng": 0 }
     ]
   },
   "weatherInfo": {
@@ -294,7 +297,7 @@ Struttura JSON richiesta (DEVI riempire TUTTI i campi con dati reali):
       "title": "Data - Titolo",
       "theme": "Tema",
       "activities": [
-        { "time": "08:00", "location": "L", "name": "N", "description": "D", "costEstimate": 0, "duration": "1h", "transport": "T", "travelTime": "10m", "tips": "T" }
+        { "time": "08:00", "location": "L", "name": "N", "description": "1-2 frasi concise", "costEstimate": 0, "duration": "1h", "transport": "T", "travelTime": "10m", "tips": "T" }
       ]
     }
   ],
@@ -308,18 +311,22 @@ Struttura JSON richiesta (DEVI riempire TUTTI i campi con dati reali):
     ]
   },
   "travelHighlights": {
-    "whyChosen": "Perché questo itinerario è ideale per questo viaggiatore",
+    "whyChosen": "2-3 frasi persuasive: perché questo itinerario è ideale per questo viaggiatore",
     "mainStops": [
       { "name": "Tappa 1", "reason": "Motivo" }
     ],
-    "whyUnforgettable": "Cosa renderà questo viaggio indimenticabile"
+    "whyUnforgettable": "2-3 frasi persuasive: cosa renderà questo viaggio indimenticabile"
   },
   "mapPoints": [
     { "lat": 0, "lng": 0, "label": "L", "type": "T" }
+  ],
+  "sources": [
+    { "title": "Nome blog o guida", "url": "https://...", "type": "blog" },
+    { "title": "Sito ufficiale", "url": "https://...", "type": "official" }
   ]
 }
 
-IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere testo prima o dopo il JSON. Non usare blocchi di codice markdown (\\\`\\\`\\\`json). NON inserire citazioni o riferimenti bibliografici nel testo. NON spiegare il tuo ragionamento, non fare preamboli, non fare commenti finali. Restituisci SOLO il JSON.`;
+IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere testo prima o dopo il JSON. Non usare blocchi di codice markdown (\\\`\\\`\\\`json). NON spiegare il tuo ragionamento, non fare preamboli, non fare commenti finali. Restituisci SOLO il JSON.`;
 
     onProgress?.("Generazione itinerario...", 45);
 
@@ -450,12 +457,15 @@ DETTAGLI VIAGGIO (per riferimento):
 Aggiorna l'itinerario tenendo conto delle richieste di modifica dell'utente.
 
 REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
-- Brevità ASSOLUTA: ogni stringa di testo MAX 5 parole. Niente frasi complete.
-- Attività per giorno: MAX 4 attività.
+- Descrizioni: frasi brevi ma complete. Destination overview, travelHighlights: 2-3 frasi persuasive e coinvolgenti che facciano venire voglia di fare il viaggio.
+- Attività per giorno: MAX 4 attività. Descrizioni attività: 1-2 frasi concise.
+- description, whyChosen, whyUnforgettable: 2-3 frasi descrittive e persuasive.
 - Attrazioni: MAX 3 elementi.
 - localTips: MAX 3 elementi.
 - JSON: SOLO il JSON, zero markdown, zero commenti.
 - NON includere voli, alloggi, ristoranti o budget breakdown — solo itinerario e info destinazione.
+
+FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti. Minimo 3, massimo 8 fonti.
 
 Struttura JSON richiesta (stessa struttura dell'itinerario originale, aggiornata con le modifiche):
 {
@@ -467,7 +477,11 @@ Struttura JSON richiesta (stessa struttura dell'itinerario originale, aggiornata
   "localTips": [...],
   "transportInfo": { ... },
   "travelHighlights": { ... },
-  "mapPoints": [ ... ]
+  "mapPoints": [ ... ],
+  "sources": [
+    { "title": "Nome blog o guida", "url": "https://...", "type": "blog" },
+    { "title": "Sito ufficiale", "url": "https://...", "type": "official" }
+  ]
 }
 
 IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido con TUTTI i campi. Non includere testo prima o dopo il JSON. Non usare blocchi di codice markdown (\\\`\\\`\\\`json). NON spiegare il tuo ragionamento. Restituisci SOLO il JSON completo aggiornato.`;

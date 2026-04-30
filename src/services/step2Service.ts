@@ -104,7 +104,7 @@ function extractStops(itinerary: ItineraryDraft): Stop[] {
   const stops: Stop[] = [];
 
   for (const day of itinerary.itinerary) {
-    // Determine location: first word of day.activities[0].location, or day.title
+    // Determine location: use full location string, or day title
     let locationRaw = "";
     if (day.activities && day.activities.length > 0 && day.activities[0].location) {
       locationRaw = day.activities[0].location;
@@ -112,20 +112,29 @@ function extractStops(itinerary: ItineraryDraft): Stop[] {
       locationRaw = day.title || "";
     }
 
-    // Take first word (typically city name), clean it up
-    const stopName = locationRaw
-      .split(/[\s,]+/)[0]
-      .replace(/[^\wÀ-ÿ]/g, "")
+    // Clean location: remove common Italian prefixes like "Arrivo a", "Visita", "Esplorazione", "Partenza da"
+    const cleanLocation = locationRaw
+      .replace(/^(Arrivo a |Arrivo a|Visita |Visita|Esplorazione |Esplorazione|Partenza da |Partenza da|Scoperta |Scoperta|Giornata a |Giornata a|Tour di |Tour di)\s*/i, "")
+      .trim();
+
+    // Take up to first 2 words (city + region) and clean
+    const stopName = cleanLocation
+      .split(/[,\-]+/)[0]  // Take part before comma (e.g. "Lisbona, Portogallo" → "Lisbona")
+      .trim()
+      .replace(/[^\wÀ-ÿ\s]/g, "")
       .trim();
 
     if (!stopName) continue;
 
-    // If same as last stop, extend it
-    if (stops.length > 0 && stops[stops.length - 1].stopName === stopName) {
+    // Normalize for matching (case-insensitive)
+    const normalizedName = stopName.toLowerCase();
+
+    // If same as last stop (case-insensitive), extend it
+    if (stops.length > 0 && stops[stops.length - 1].stopName.toLowerCase() === normalizedName) {
       stops[stops.length - 1].dayIndices.push(day.day - 1);
     } else {
       stops.push({
-        stopName,
+        stopName, // Keep original casing for display
         nights: 1,
         dayIndices: [day.day - 1],
       });
@@ -178,9 +187,9 @@ ISTRUZIONI:
 1. Usa la ricerca web per trovare prezzi REALI e aggiornati per alloggi a ${stopName}.
 2. Proponi 2-3 opzioni di alloggio (hotel, B&B, ostello, appartamento) con prezzi per notte trovati online.
 3. Proponi 2 opzioni di ristorante locale con fascia di prezzo.
-4. Le descrizioni DEVONO essere ULTRA-BREVI: MAX 5 parole per ogni campo di testo.
+4. Le descrizioni DEVONO essere brevi ma informative: 1-2 frasi per reviewSummary.
 5. Per "estimatedPricePerNight" indica il costo TOTALE della camera per TUTTE le ${totalPeople} persone, NON per persona.
-6. Per "bookingUrl" usa il link a booking.com o il sito ufficiale dell'hotel.
+6. Per "bookingUrl" usa il link a booking.com. Per "officialUrl" usa il sito ufficiale dell'hotel. Includi ENTRAMBI se possibile.
 
 🔗 SICUREZZA DEI LINK:
 - USA SOLO link a siti noti: booking.com, tripadvisor.it, airbnb.com, hotels.com, ecc.
@@ -204,6 +213,7 @@ Struttura JSON richiesta:
         "reviewSummary": "Breve recensione",
         "estimatedPricePerNight": 100,
         "bookingUrl": "https://www.booking.com/hotel/...",
+        "officialUrl": "https://www.hotelname.com",
         "address": "Indirizzo",
         "amenities": ["WiFi", "Parcheggio"],
         "stars": 4
@@ -276,7 +286,7 @@ async function searchStopAccommodationsRetry(
   const totalPeople = inputs.people.adults + inputs.people.children.length;
   const accommodationType = inputs.accommodationType || "Hotel";
 
-  const prompt = `Cerca 2 alloggi e 1 ristorante a ${stopName} per ${nights} notti (${totalPeople} persone, tipo: ${accommodationType}). Prezzi reali trovati online. MAX 5 parole per campo. SOLO JSON:
+  const prompt = `Cerca 2 alloggi e 1 ristorante a ${stopName} per ${nights} notti (${totalPeople} persone, tipo: ${accommodationType}). Prezzi reali trovati online. Descrizioni brevi ma informative. SOLO JSON:
 
 {
   "accommodations": {
@@ -290,6 +300,7 @@ async function searchStopAccommodationsRetry(
         "reviewSummary": "Breve recensione",
         "estimatedPricePerNight": 80,
         "bookingUrl": "https://www.booking.com/hotel/...",
+        "officialUrl": "https://www.hotel.com",
         "address": "Indirizzo",
         "amenities": ["WiFi"],
         "stars": 3

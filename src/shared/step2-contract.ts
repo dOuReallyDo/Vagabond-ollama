@@ -15,6 +15,7 @@ export const AccommodationStopSchema = z.object({
       reviewSummary: z.string().nullish(),
       estimatedPricePerNight: z.number(),
       bookingUrl: z.string().nullish(),
+      officialUrl: z.string().nullish(),
       imageUrl: z.string().nullish(),
       lat: z.number().nullish(),
       lng: z.number().nullish(),

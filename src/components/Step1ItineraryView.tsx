@@ -17,6 +17,38 @@ import { cn } from '../App';
 import type { ItineraryDraft } from '../shared/step1-contract';
 import type { TravelInputs } from '../shared/contract';
 
+// ─── IMAGE HELPERS (mirrored from App.tsx) ───────────────────────────────────
+
+const getImageUrl = (item: any, keyword: string, unsplashMap?: Map<string, string>) => {
+  const kw = keyword.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (unsplashMap) {
+    for (const tryKey of [kw, kw.split(' ').slice(0, 3).join(' '), kw.split(' ').slice(0, 2).join(' ')]) {
+      if (unsplashMap.has(tryKey)) {
+        return unsplashMap.get(tryKey)!;
+      }
+    }
+  }
+  const imageUrl = item?.imageUrl || item?.heroImageUrl;
+  if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+    const url = imageUrl.trim();
+    const bad = ['google.com/imgres', 'instagram.com', 'pinterest.com', 'flickr.com/photos', 'facebook.com'];
+    if (!bad.some((b) => url.includes(b))) return url;
+  }
+  const seed = kw.replace(/[^a-z0-9]/g, '').trim().slice(0, 60);
+  return `https://picsum.photos/seed/${seed}/800/600`;
+};
+
+const getUnsplashOnly = (keyword: string, unsplashMap?: Map<string, string>): string | null => {
+  if (!unsplashMap) return null;
+  const kw = keyword.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  for (const tryKey of [kw, kw.split(' ').slice(0, 3).join(' '), kw.split(' ').slice(0, 2).join(' ')]) {
+    if (unsplashMap.has(tryKey)) {
+      return unsplashMap.get(tryKey)!;
+    }
+  }
+  return null;
+};
+
 // ─── WEATHER ICON HELPER ─────────────────────────────────────────────────────
 
 function getWeatherEmoji(summary: string): string {
@@ -58,7 +90,20 @@ export interface Step1ItineraryViewProps {
   isLoading: boolean;
   onConfirm: () => void;
   onModify: (request: string) => void;
+  unsplashImages?: Map<string, string>;
 }
+
+// ─── IMAGE ERROR HANDLER ─────────────────────────────────────────────────────
+
+const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+  const target = e.target as HTMLImageElement;
+  const fallback = target.dataset.fallback;
+  if (fallback && target.src !== fallback) {
+    target.src = fallback;
+  } else {
+    target.style.display = 'none';
+  }
+};
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 
@@ -68,6 +113,7 @@ export default function Step1ItineraryView({
   isLoading,
   onConfirm,
   onModify,
+  unsplashImages,
 }: Step1ItineraryViewProps) {
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({ 0: true });
   const [showModifyInput, setShowModifyInput] = useState(false);
@@ -83,16 +129,24 @@ export default function Step1ItineraryView({
   const destination = data.destinationOverview?.title || inputs.destination || '';
   const country = inputs.country || '';
 
+  // Resolve hero image: AI URL → unsplash lookup → picsum fallback
+  const heroImageUrl = getImageUrl(
+    data.destinationOverview,
+    `${destination} ${country} landscape`,
+    unsplashImages,
+  );
+
   return (
     <div className="min-h-screen bg-brand-paper pb-32">
 
       {/* ─── HERO ──────────────────────────────────────────────────────────── */}
       <section className="relative h-[50vh] md:h-[60vh] overflow-hidden">
-        {data.destinationOverview?.heroImageUrl && (
+        {heroImageUrl && (
           <img
-            src={data.destinationOverview.heroImageUrl}
+            src={heroImageUrl}
             alt={destination}
             className="absolute inset-0 w-full h-full object-cover"
+            onError={handleImageError}
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-brand-paper" />
@@ -193,7 +247,9 @@ export default function Step1ItineraryView({
             <h2 className="text-5xl mb-2">Da vedere</h2>
             <p className="text-brand-ink/50 mb-8 font-sans text-sm">Le attrazioni imperdibili della destinazione</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {data.destinationOverview.attractions.map((attr, i) => (
+              {data.destinationOverview.attractions.map((attr, i) => {
+                const attrImgUrl = getImageUrl(attr, `${attr.name} ${destination}`, unsplashImages);
+                return (
                 <motion.a
                   key={i}
                   href={attr.sourceUrl || `https://www.google.com/search?q=${encodeURIComponent(attr.name + ' ' + destination)}`}
@@ -204,6 +260,16 @@ export default function Step1ItineraryView({
                   transition={{ delay: i * 0.08 }}
                   className="group relative bg-white border border-brand-ink/5 overflow-hidden rounded-3xl shadow-sm block hover:shadow-md transition-shadow"
                 >
+                  {attrImgUrl && (
+                    <div className="h-48 overflow-hidden">
+                      <img
+                        src={attrImgUrl}
+                        alt={attr.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={handleImageError}
+                      />
+                    </div>
+                  )}
                   <div className="flex flex-col h-full p-6">
                     {attr.category && (
                       <span className="text-[10px] font-bold uppercase tracking-widest text-brand-ink/40 mb-2">{attr.category}</span>
@@ -222,7 +288,8 @@ export default function Step1ItineraryView({
                     </div>
                   </div>
                 </motion.a>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -377,6 +444,11 @@ export default function Step1ItineraryView({
                             {day.activities.map((act, j) => {
                               const actText = ((act.name || '') + ' ' + (act.description || '')).toLowerCase();
                               const isGeneric = ['check out', 'checkout', 'check-in', 'check in', 'colazione', 'partenza', 'riposo', 'tempo libero'].some(kw => actText.includes(kw));
+                              // Unsplash image for non-generic activities
+                              const actImageKey = !isGeneric && act.name && act.name.length > 3
+                                ? `${act.name} ${act.location || destination}`
+                                : null;
+                              const actImgUrl = actImageKey ? getUnsplashOnly(actImageKey, unsplashImages) : null;
                               return (
                                 <div
                                   key={j}
@@ -387,28 +459,43 @@ export default function Step1ItineraryView({
                                       : "border-brand-ink/5"
                                   )}
                                 >
-                                  <div className="flex items-start justify-between mb-3">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-mono bg-white px-2 py-0.5 rounded-md text-brand-ink/60 shadow-sm">{act.time}</span>
-                                      {act.duration && (
-                                        <span className="text-xs text-brand-ink/40 flex items-center gap-1">
-                                          <Clock className="w-3 h-3" /> {act.duration}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {act.costEstimate !== undefined && !act.name?.toLowerCase().includes('pernottamento') && (
-                                      <span className="text-sm font-bold text-brand-accent">
-                                        {act.costEstimate === 0 ? null : `€${act.costEstimate}`}
-                                      </span>
+                                  {/* Layout: thumbnail next to content if image exists */}
+                                  <div className={cn(actImgUrl && "flex gap-4")}>
+                                    {actImgUrl && (
+                                      <div className="shrink-0 w-20 h-20 rounded-2xl overflow-hidden">
+                                        <img
+                                          src={actImgUrl}
+                                          alt={act.name || ''}
+                                          className="w-full h-full object-cover"
+                                          onError={handleImageError}
+                                        />
+                                      </div>
                                     )}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-mono bg-white px-2 py-0.5 rounded-md text-brand-ink/60 shadow-sm">{act.time}</span>
+                                          {act.duration && (
+                                            <span className="text-xs text-brand-ink/40 flex items-center gap-1">
+                                              <Clock className="w-3 h-3" /> {act.duration}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {act.costEstimate !== undefined && !act.name?.toLowerCase().includes('pernottamento') && (
+                                          <span className="text-sm font-bold text-brand-accent">
+                                            {act.costEstimate === 0 ? null : `€${act.costEstimate}`}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {act.name && <h4 className="text-lg font-serif mb-2 leading-tight">{act.name}</h4>}
+                                      {act.location && (
+                                        <p className="text-xs text-brand-accent mb-2 flex items-center gap-1 font-medium">
+                                          <MapPin className="w-3 h-3" /> {act.location}
+                                        </p>
+                                      )}
+                                      <p className="text-brand-ink/70 text-sm leading-relaxed">{act.description}</p>
+                                    </div>
                                   </div>
-                                  {act.name && <h4 className="text-lg font-serif mb-2 leading-tight">{act.name}</h4>}
-                                  {act.location && (
-                                    <p className="text-xs text-brand-accent mb-2 flex items-center gap-1 font-medium">
-                                      <MapPin className="w-3 h-3" /> {act.location}
-                                    </p>
-                                  )}
-                                  <p className="text-brand-ink/70 text-sm leading-relaxed">{act.description}</p>
 
                                   {(act.transport || act.travelTime) && (
                                     <div className="mt-4 pt-4 border-t border-brand-ink/5 flex flex-wrap gap-3">
@@ -444,6 +531,36 @@ export default function Step1ItineraryView({
             })}
           </div>
         </section>
+
+        {/* ─── FONTI E ISPIRAZIONI ────────────────────────────────────────── */}
+        {data.sources && data.sources.length > 0 && (
+          <section className="mb-20">
+            <h2 className="text-3xl mb-6">Fonti e ispirazioni</h2>
+            <p className="text-brand-ink/50 mb-6 font-sans text-sm">Risorse utilizzate per costruire il tuo itinerario</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {data.sources.map((source, i) => (
+                <a
+                  key={i}
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group flex items-start gap-3 bg-white border border-brand-ink/5 rounded-2xl p-4 hover:border-brand-accent/30 hover:shadow-sm transition-all"
+                >
+                  <div className="shrink-0 w-8 h-8 rounded-xl bg-brand-accent/10 text-brand-accent flex items-center justify-center">
+                    <ExternalLink className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-brand-ink group-hover:text-brand-accent transition-colors truncate">{source.title}</p>
+                    {source.type && (
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-ink/40">{source.type}</span>
+                    )}
+                    <p className="text-xs text-brand-ink/40 truncate mt-0.5">{source.url}</p>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ─── CONSIGLI LOCALI + TRASPORTI ─────────────────────────────────── */}
         {(data.localTips?.length > 0 || data.transportInfo) && (
