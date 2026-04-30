@@ -275,14 +275,16 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
   });
 
   const text = extractText(response.choices[0]?.message?.content || "");
-  const jsonStartIdx = text.indexOf("{");
-  const jsonEndIdx = text.lastIndexOf("}");
+  // Strip markdown code blocks if present
+  const cleanText = text.replace(/```(?:json)?\s*/g, "").replace(/```/g, "");
+  const jsonStartIdx = cleanText.indexOf("{");
+  const jsonEndIdx = cleanText.lastIndexOf("}");
 
   if (jsonStartIdx === -1 || jsonEndIdx === -1) {
     throw new Error(`Nessun JSON valido trovato per la tappa ${stopName}`);
   }
 
-  const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
+  const jsonText = cleanText.substring(jsonStartIdx, jsonEndIdx + 1);
   const rawJson = repairJson(jsonText);
   const json = cleanEmptyStrings(rawJson) as Record<string, unknown>;
 
@@ -362,14 +364,16 @@ SOLO JSON, zero markdown.`;
   });
 
   const text = extractText(response.choices[0]?.message?.content || "");
-  const jsonStartIdx = text.indexOf("{");
-  const jsonEndIdx = text.lastIndexOf("}");
+  // Strip markdown code blocks if present
+  const cleanText = text.replace(/```(?:json)?\s*/g, "").replace(/```/g, "");
+  const jsonStartIdx = cleanText.indexOf("{");
+  const jsonEndIdx = cleanText.lastIndexOf("}");
 
   if (jsonStartIdx === -1 || jsonEndIdx === -1) {
     throw new Error(`Nessun JSON valido trovato per la tappa ${stopName} (retry)`);
   }
 
-  const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
+  const jsonText = cleanText.substring(jsonStartIdx, jsonEndIdx + 1);
   const rawJson = repairJson(jsonText);
   const json = cleanEmptyStrings(rawJson) as Record<string, unknown>;
 
@@ -449,10 +453,14 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
 
   const response = await client.chat.completions.create({
     model: "glm-5.1",
-    max_tokens: 2000,
+    max_tokens: 4000,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tools: [{ type: "web_search", web_search: { enable: true } }] as any,
     messages: [
+      {
+        role: "system",
+        content: "Sei un assistente che risponde SOLO in JSON. Nessun testo prima o dopo il JSON. Nessun markdown.",
+      },
       {
         role: "user",
         content: prompt,
@@ -461,14 +469,20 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
   });
 
   const text = extractText(response.choices[0]?.message?.content || "");
-  const jsonStartIdx = text.indexOf("{");
-  const jsonEndIdx = text.lastIndexOf("}");
+  console.log("[Step2-Flights] Raw response length:", text.length, "first 300 chars:", text.substring(0, 300));
+
+  // Strip markdown code blocks if present (GLM sometimes wraps JSON in ```json...```)
+  let cleanText = text.replace(/```(?:json)?\s*/g, "").replace(/```/g, "");
+
+  const jsonStartIdx = cleanText.indexOf("{");
+  const jsonEndIdx = cleanText.lastIndexOf("}");
 
   if (jsonStartIdx === -1 || jsonEndIdx === -1) {
+    console.error("[Step2-Flights] No JSON found in response. Full text:", text.substring(0, 1000));
     throw new Error("Nessun JSON valido trovato per la ricerca voli");
   }
 
-  const jsonText = text.substring(jsonStartIdx, jsonEndIdx + 1);
+  const jsonText = cleanText.substring(jsonStartIdx, jsonEndIdx + 1);
   const rawJson = repairJson(jsonText);
   const json = cleanEmptyStrings(rawJson) as Record<string, unknown>;
 
