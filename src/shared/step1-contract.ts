@@ -4,7 +4,7 @@ import { z } from "zod";
 // NO flights, NO accommodations, NO restaurants, NO budget breakdown
 
 export const ItineraryDraftSchema = z.object({
-  budgetWarning: z.string().optional(),
+  budgetWarning: z.string().nullish(),
   destinationOverview: z.object({
     title: z.string(),
     description: z.string(),
@@ -12,63 +12,63 @@ export const ItineraryDraftSchema = z.object({
       z.object({
         name: z.string(),
         description: z.string(),
-        sourceUrl: z.string().optional(),
-        category: z.string().optional(),
-        estimatedVisitTime: z.string().optional(),
-        lat: z.number().optional(),
-        lng: z.number().optional(),
+        sourceUrl: z.string().nullish(),
+        category: z.string().nullish(),
+        estimatedVisitTime: z.string().nullish(),
+        lat: z.number().nullish(),
+        lng: z.number().nullish(),
       })
     ),
-    heroImageUrl: z.string().optional(),
-    tagline: z.string().optional(),
+    heroImageUrl: z.string().nullish(),
+    tagline: z.string().nullish(),
   }),
   weatherInfo: z.object({
     summary: z.string(),
     pros: z.string(),
     cons: z.string(),
-    averageTemp: z.string().optional(),
-    packingTips: z.string().optional(),
+    averageTemp: z.string().nullish(),
+    packingTips: z.string().nullish(),
   }),
   safetyAndHealth: z.object({
     safetyWarnings: z.string(),
     vaccinationsRequired: z.string(),
-    safetyLevel: z.string().optional(),
-    emergencyNumbers: z.string().optional(),
+    safetyLevel: z.string().nullish(),
+    emergencyNumbers: z.string().nullish(),
   }),
   itinerary: z.array(
     z.object({
       day: z.number(),
       title: z.string(),
-      theme: z.string().optional(),
+      theme: z.string().nullish(),
       activities: z.array(
         z.object({
           time: z.string(),
-          location: z.string().optional(),
-          name: z.string().optional(),
+          location: z.string().nullish(),
+          name: z.string().nullish(),
           description: z.string(),
-          costEstimate: z.number().optional(),
-          sourceUrl: z.string().optional(),
-          imageUrl: z.string().optional(),
-          lat: z.number().optional(),
-          lng: z.number().optional(),
-          duration: z.string().optional(),
-          transport: z.string().optional(),
-          travelTime: z.string().optional(),
-          tips: z.string().optional(),
+          costEstimate: z.number().nullish(),
+          sourceUrl: z.string().nullish(),
+          imageUrl: z.string().nullish(),
+          lat: z.number().nullish(),
+          lng: z.number().nullish(),
+          duration: z.string().nullish(),
+          transport: z.string().nullish(),
+          travelTime: z.string().nullish(),
+          tips: z.string().nullish(),
         })
       ),
     })
   ),
   localTips: z.array(z.string()).optional(),
   transportInfo: z.object({
-    localTransport: z.string().optional(),
+    localTransport: z.string().nullish(),
     bestApps: z.array(z.string()).optional(),
-    estimatedLocalCost: z.string().optional(),
+    estimatedLocalCost: z.string().nullish(),
     privateTransferLinks: z.array(
       z.object({
         provider: z.string(),
         url: z.string(),
-        description: z.string().optional(),
+        description: z.string().nullish(),
       })
     ).optional(),
   }).optional(),
@@ -85,7 +85,7 @@ export const ItineraryDraftSchema = z.object({
       lat: z.number(),
       lng: z.number(),
       label: z.string(),
-      type: z.string().optional(),
+      type: z.string().nullish(),
     })
   ).optional(),
 });

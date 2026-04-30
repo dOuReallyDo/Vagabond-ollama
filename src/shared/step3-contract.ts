@@ -9,9 +9,9 @@ export const BudgetCalculationSchema = z.object({
     activities: z.number(),
     food: z.number(),
     totalEstimated: z.number(),
-    transport: z.number().optional(),
-    misc: z.number().optional(),
-    perPersonPerDay: z.number().optional(),
+    transport: z.number().nullish(),
+    misc: z.number().nullish(),
+    perPersonPerDay: z.number().nullish(),
   }),
   budgetWarning: z.string().nullable(),
   // Detailed cost table for transparency
@@ -22,7 +22,7 @@ export const BudgetCalculationSchema = z.object({
         z.object({
           name: z.string(),
           cost: z.number(),
-          notes: z.string().optional(),
+          notes: z.string().nullish(),
         })
       ),
       subtotal: z.number(),
