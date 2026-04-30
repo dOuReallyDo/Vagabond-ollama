@@ -278,14 +278,14 @@ Per TUTTI i campi URL nel JSON (sourceUrl, imageUrl, heroImageUrl), segui queste
 - Se non riesci a trovare un link sicuro per una risorsa, lascia il campo URL vuoto (undefined/null) piuttosto che inserire un link dubbio.
 
 REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
-- Descrizioni: frasi brevi ma complete. Destination overview, travelHighlights: 2-3 frasi persuasive e coinvolgenti che facciano venire voglia di fare il viaggio.
-- Attività per giorno: MAX 4 attività (mattina, pranzo, pomeriggio, sera). Descrizioni attività: 1-2 frasi concise.
-- description, whyChosen, whyUnforgettable: 2-3 frasi descrittive e persuasive.
-- Attrazioni: MAX 3 elementi.
+- destinationOverview, travelHighlights: 2-3 frasi persuasive.
+- Attività per giorno: MAX 3 attività (mattina, pomeriggio, sera). Descrizioni: 1 frase.
+- Attrazioni: MAX 3 elementi, descrizione: MAX 10 parole.
 - localTips: MAX 3 elementi.
-- JSON: SOLO il JSON, zero markdown, zero commenti.
+- sources: MAX 5 fonti.
+- JSON: SOLO il JSON, zero markdown, zero commenti, niente testo dopo la chiusura }.
 
-FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti. Minimo 3, massimo 8 fonti.
+FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti.
 
 ITINERARIO GIORNALIERO:
 ${dateList}
@@ -412,12 +412,13 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
       }
     }
 
-    const validationResult = ItineraryDraftSchema.safeParse(json);
+    const validationResult = ItineraryDraftSchema.safeParse(j);
     if (!validationResult.success) {
       console.error(
         "Step 1 Validation Errors:",
         JSON.stringify(validationResult.error.issues, null, 2)
       );
+      console.error("Step 1 Raw AI response (first 2000 chars):", text.substring(0, 2000));
       throw new Error(
         "L'itinerario generato non rispetta il formato richiesto. Riprova."
       );
@@ -474,12 +475,12 @@ DETTAGLI VIAGGIO (per riferimento):
 Aggiorna l'itinerario tenendo conto delle richieste di modifica dell'utente.
 
 REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
-- Descrizioni: frasi brevi ma complete. Destination overview, travelHighlights: 2-3 frasi persuasive e coinvolgenti che facciano venire voglia di fare il viaggio.
-- Attività per giorno: MAX 4 attività. Descrizioni attività: 1-2 frasi concise.
-- description, whyChosen, whyUnforgettable: 2-3 frasi descrittive e persuasive.
-- Attrazioni: MAX 3 elementi.
+- destinationOverview, travelHighlights: 2-3 frasi persuasive.
+- Attività per giorno: MAX 3 attività (mattina, pomeriggio, sera). Descrizioni: 1 frase.
+- Attrazioni: MAX 3 elementi, descrizione: MAX 10 parole.
 - localTips: MAX 3 elementi.
-- JSON: SOLO il JSON, zero markdown, zero commenti.
+- sources: MAX 5 fonti.
+- JSON: SOLO il JSON, zero markdown, zero commenti, niente testo dopo la chiusura }.
 - NON includere voli, alloggi, ristoranti o budget breakdown — solo itinerario e info destinazione.
 
 FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti. Minimo 3, massimo 8 fonti.
