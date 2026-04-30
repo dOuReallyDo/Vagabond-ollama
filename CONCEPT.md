@@ -16,13 +16,17 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 
 ```
 ① Itinerario → ② Alloggi & Trasporti → ③ Budget
-   (modificabile)     (conferma)           (salva)
+   (modificabile)     (seleziona + conferma)    (salva)
 ```
 
 - Ogni step ha un prompt più piccolo → meno timeout AI
 - L'utente può modificare l'itinerario prima di cercare alloggi
 - Modifica Step 1 → Steps 2-3 invalidati e ricalcolati
 - Viaggi lunghi (14+ giorni) non si bloccano grazie ad auto-retry con prompt compatto
+- **Distribuzione tappe intelligente**: Max N/2 tappe per viaggio di N giorni, città principali 2-3 notti
+- **Selezione utente**: In Step 2 l'utente sceglie alloggio e trasporto per ogni tappa — solo i selezionati vanno nel budget
+- **Timeline visiva**: Le tappe sono visibili in sequenza (es. "Milano → Lisbona (3gg) → Porto → Milano")
+- **Mappa interattiva**: Leaflet/OpenStreetMap con marker mostrata nell'itinerario (Step 1)
 
 ## User Persona
 - **Il Viaggiatore Curioso**: Cerca esperienze autentiche lontano dai circuiti di massa.
@@ -31,8 +35,8 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 
 ## Design Philosophy
 - **Minimalismo**: L'interfaccia deve sparire per lasciare spazio alle immagini e alle informazioni.
-- **Fiducia**: Ogni link deve funzionare (URL Safety 3-layer), ogni costo deve essere realistico.
-- **Progressività**: L'utente conferma prima di procedere — niente sorprese.
+- **Fiducia**: Ogni link deve funzionare (URL Safety 3-layer), ogni costo deve essere realistico (cap trasporti al 30% del budget).
+- **Progressività**: L'utente conferma e seleziona prima di procedere — niente sorprese, niente costi nascosti.
 - **Resilienza**: Se l'AI tronca la risposta, il sistema ritenta automaticamente con un prompt più conciso.
 
 ## Stack

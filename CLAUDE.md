@@ -66,20 +66,28 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - Descriptions: 2-3 sentences for overview/highlights, 1-2 for activities
 - Sources: blog/guide/official URLs at the end
 - `cleanEmptyStrings()` converts AI empty strings to null before Zod validation
+- **Stop distribution rules**: Max N/2 stops for N-day trip. Major cities min 2-3 nights. Base + day-trip pattern enforced in prompt.
+- **Map**: TravelMap (Leaflet) rendered in Step1ItineraryView with mapPoints before day cards
+- **estimatedLocalCost**: Must be per-person per-day (e.g. "€25 al giorno"), never total trip cost
 
 **Step 2 — Accommodations + Transport** (`src/services/step2Service.ts`):
 - 1 AI call per stop (city) for hotels + restaurants, 1 call for flights
 - `max_tokens: 4000` per stop, `2000` for flights
 - `extractStops()`: groups consecutive days by location, strips Italian prefixes, case-insensitive matching
 - Each stop returns 2-3 hotel options with `bookingUrl` + `officialUrl`
+- Each flight segment returns 2-3 transport options
 - Retry with simpler prompt on failure (skip failed stops)
 - Progress: "Ricerca alloggi a {{city}}... (n/total)"
+- **User selection**: `selectedIndex` field on AccommodationStop and FlightSegment — user clicks to select preferred option per stop/segment
+- **TripTimeline**: horizontal stop flow at top of page (e.g. "Milano → Lisbona (3 notti) → Porto (2gg) → Milano")
+- **RunningTotalBar**: live summary of selected accommodation + transport costs
 - NOT modifiable — to change, go back to Step 1 (invalidates 2-3)
 
 **Step 3 — Budget** (`src/services/step3Service.ts`):
 - **Pure JS calculation** — NO AI call
-- Sums costs from Step 1 (activities) + Step 2 (flights, hotels)
+- Sums costs using **user-selected** options (not always options[0]) via `selectedIndex` on AccommodationStop and FlightSegment
 - Estimates food, local transport, misc
+- **Smart transport cost**: parses `estimatedLocalCost` per-day vs total contextually ("al giorno" → multiply by days × people; "totale" → use as-is). Ambiguous large numbers treated as total. Cap: €200/person/day max, and local transport never exceeds 30% of budget.
 - Generates budgetWarning if total exceeds input budget
 - `costTable` expanded by default
 
@@ -113,7 +121,7 @@ All AI calls use the OpenAI SDK with Zhipu API (`baseURL: https://open.bigmodel.
 
 **v2 (3-step)** — `src/shared/contract-v2.ts` + step contracts:
 - `ItineraryDraftSchema` / `ItineraryDraft` — Step 1 output (includes `sources` array)
-- `AccommodationTransportSchema` / `AccommodationTransport` — Step 2 output (includes `officialUrl` on hotels)
+- `AccommodationTransportSchema` / `AccommodationTransport` — Step 2 output (includes `officialUrl` on hotels, `selectedIndex` on stops and flight segments)
 - `BudgetCalculationSchema` / `BudgetCalculation` — Step 3 output (costTable expanded by default)
 - `TravelPlanV2Schema` / `TravelPlanV2` — composed type (inputs + 3 step data + completion flags)
 - `ActiveStep` = `1 | 2 | 3`
@@ -123,9 +131,9 @@ All AI calls use the OpenAI SDK with Zhipu API (`baseURL: https://open.bigmodel.
 | Component | Purpose |
 |-----------|---------|
 | `StepIndicator.tsx` | Visual stepper: ① Itinerario → ② Alloggi & Trasporti → ③ Budget |
-| `Step1ItineraryView.tsx` | Itinerary display + Unsplash images + "Fonti e ispirazioni" + confirm/modify |
-| `Step2AccommodationView.tsx` | Hotels (with officialUrl + bookingUrl), restaurants, flights per stop |
-| `Step3BudgetView.tsx` | Budget breakdown + save with visual feedback (saving → saved ✅) |
+| `Step1ItineraryView.tsx` | Itinerary display + TravelMap (Leaflet) + Unsplash images + "Fonti e ispirazioni" + confirm/modify |
+| `Step2AccommodationView.tsx` | TripTimeline + selectable hotels (officialUrl + bookingUrl) + selectable flights + RunningTotalBar + restaurants per stop |
+| `Step3BudgetView.tsx` | Budget breakdown (uses user selections) + save with visual feedback (saving → saved ✅) |
 
 ### Unsplash Image Integration
 
@@ -229,18 +237,18 @@ src/
 │   ├── contract.ts                  # v1 schemas (TravelPlan, TravelInputs)
 │   ├── contract-v2.ts               # v2 composed schema (TravelPlanV2)
 │   ├── step1-contract.ts            # ItineraryDraft schema (with sources + nullish)
-│   ├── step2-contract.ts            # AccommodationTransport schema (with officialUrl + nullish)
+│   ├── step2-contract.ts            # AccommodationTransport schema (officialUrl + selectedIndex + nullish)
 │   └── step3-contract.ts            # BudgetCalculation schema (with nullish)
 ├── services/
-│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + cleanEmptyStrings() + buildCompactPrompt() + auto-retry
+│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + auto-retry
 │   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops)
-│   ├── step3Service.ts              # calculateBudget() (pure JS)
+│   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, smart transport cost)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
 ├── components/
 │   ├── StepIndicator.tsx            # 3-step visual stepper
-│   ├── Step1ItineraryView.tsx       # Step 1: itinerary + images + sources + confirm/modify
-│   ├── Step2AccommodationView.tsx   # Step 2: hotels (officialUrl + bookingUrl) + flights
+│   ├── Step1ItineraryView.tsx       # Step 1: itinerary + TravelMap + Unsplash images + sources + confirm/modify
+│   ├── Step2AccommodationView.tsx   # Step 2: timeline + selectable hotels/flights + RunningTotalBar
 │   ├── Step3BudgetView.tsx          # Step 3: budget breakdown + save feedback
 │   ├── AuthForm.tsx                 # Login/Signup UI
 │   ├── ProfileForm.tsx              # Traveler profile
@@ -276,6 +284,14 @@ Never use `supabase.from().insert()` or `.select()` directly for saves — the J
 - Steps 2 and 3 are confirmed, not modified.
 - Step 3 is pure JS (no AI call) — instant calculation.
 - The feature flag `useV2Flow` (default: `true`) switches between 3-step and legacy monolithic flow.
+
+### Stop Distribution (AI Prompt)
+- The Step 1 prompt enforces "REGOLE PER LA DISTRIBUZIONE DELLE TAPPE": max N/2 stops for N days, 2-3 nights in major cities, base + day-trip pattern, `location` field must match overnight city.
+- The compact prompt includes: "TAPPE: MAX N/2 tappe per viaggio di N giorni. Città principali: 2-3 notti."
+
+### Transport Cost Pitfall
+- `estimatedLocalCost` from GLM-5.1 is ambiguous — could be per-day or total. Step 3 parses it intelligently: "al giorno"/"per day" → multiply by days×people; "totale"/"total" → use as-is. Ambiguous large numbers (>€200) treated as total.
+- Cap: local transport never exceeds 30% of total budget. Per-person per-day cap: €200.
 
 ### Zod Pitfalls with AI APIs
 - **`.optional()` vs `.nullish()`**: GLM-5.1 returns `null` for missing fields, not `undefined`. Use `.nullish()` for all `z.string()` and `z.number()` fields. Keep `.optional()` only for `z.array()` and `z.object()`.

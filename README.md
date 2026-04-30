@@ -6,9 +6,9 @@ Fork di [Vagabond AI](https://github.com/dOuReallyDo/Vagabond) migrato da Claude
 
 L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitica. Questo risolve i timeout di GLM-5.1 su viaggi complessi (14+ giorni):
 
-1. **Step 1 — Itinerario** (AI, 1 chiamata, max 16k token): destinazione, meteo, sicurezza, programma giorno per giorno, fonti
-2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli): hotel con bookingUrl + officialUrl, ristoranti, voli/treni
-3. **Step 3 — Budget** (JS puro, nessuna AI): calcolo automatico dei costi con costTable espanso
+1. **Step 1 — Itinerario** (AI, 1 chiamata, max 16k token): destinazione, meteo, sicurezza, programma giorno per giorno, fonti, mappa
+2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli): hotel con bookingUrl + officialUrl, ristoranti, voli/treni — **l'utente seleziona** alloggio e trasporto per ogni tappa
+3. **Step 3 — Budget** (JS puro, nessuna AI): calcolo automatico basato sulle **selezioni utente** con costTable espanso
 
 **Vantaggi:**
 - Ogni step ha un prompt più piccolo → meno timeout
@@ -16,17 +16,20 @@ L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitic
 - Modifica Step 1 → Steps 2-3 invalidati e ricalcolati
 - Viaggi lunghi (14+ giorni) non si bloccano più
 - **Auto-retry**: se l'AI tronca il JSON, ritenta automaticamente con prompt compatto
+- **Distribuzione tappe**: Max N/2 tappe per viaggio di N giorni — niente cambio città ogni giorno
+- **Selezione utente**: solo gli alloggi e trasporti scelti vanno nel budget
+- **Costi realistici**: smart parsing dei costi trasporti locali (per-giorno vs totale), cap al 30% del budget
 
 Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2Flow = false`.
 
 ## ✨ Caratteristiche Principali
 
-- **Itinerari Dinamici**: Generazione di piani giornalieri dettagliati
-- **3-Step Flow**: Itinerario → Alloggi → Budget con conferma progressiva
+- **Itinerari Dinamici**: Generazione di piani giornalieri dettagliati con distribuzione tappe intelligente (N/2 max tappe)
+- **3-Step Flow**: Itinerario → Alloggi (selezionabili) → Budget con conferma progressiva
 - **Auto-retry su troncamento**: Se il JSON è troncato, ritenta con prompt più conciso
 - **Mappe Interattive**: Integrazione con Leaflet/OpenStreetMap
 - **Ricerca Real-Time**: GLM-5.1 AI con web search per prezzi reali
-- **Budget Intelligence**: Calcolo automatico dei costi con dettaglio per categoria
+- **Budget Intelligence**: Calcolo automatico basato sulle selezioni utente con dettaglio per categoria, smart transport cost parsing
 - **Profilo Viaggiatore**: Età, interessi, ritmo, mobilità — itinerari personalizzati
 - **Immagini Unsplash**: Foto reali per destinazione, attrazioni e attività
 - **Fonti verificabili**: Blog, guide e siti ufficiali per ogni itinerario
@@ -76,19 +79,19 @@ src/
 ├── shared/
 │   ├── contract.ts                  # v1 schemas (TravelPlan, TravelInputs)
 │   ├── contract-v2.ts               # v2 composed schema (TravelPlanV2)
-│   ├── step1-contract.ts            # ItineraryDraft schema (nullish + sources)
-│   ├── step2-contract.ts            # AccommodationTransport schema (nullish + officialUrl)
+│   ├── step1-contract.ts            # ItineraryDraft schema (nullish + sources + mapPoints)
+│   ├── step2-contract.ts            # AccommodationTransport schema (selectedIndex + officialUrl + nullish)
 │   └── step3-contract.ts            # BudgetCalculation schema (nullish)
 ├── services/
-│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + buildCompactPrompt() + auto-retry
-│   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops)
-│   ├── step3Service.ts              # calculateBudget() (pure JS)
+│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + buildCompactPrompt() + auto-retry
+│   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops + selectedIndex)
+│   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, smart transport cost)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
 ├── components/
 │   ├── StepIndicator.tsx            # 3-step visual stepper
-│   ├── Step1ItineraryView.tsx       # Step 1: itinerary + Unsplash images + sources + confirm/modify
-│   ├── Step2AccommodationView.tsx   # Step 2: hotels (officialUrl + bookingUrl) + flights
+│   ├── Step1ItineraryView.tsx       # Step 1: itinerary + TravelMap + Unsplash images + sources + confirm/modify
+│   ├── Step2AccommodationView.tsx   # Step 2: TripTimeline + selectable hotels/flights + RunningTotalBar
 │   ├── Step3BudgetView.tsx          # Step 3: budget breakdown + save feedback
 │   ├── AuthForm.tsx                 # Login/Signup UI
 │   ├── ProfileForm.tsx              # Profilo viaggiatore

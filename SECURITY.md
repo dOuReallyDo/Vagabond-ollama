@@ -30,7 +30,7 @@
 
 - All inputs validated with Zod schemas before processing
 - `TravelInputsSchema` enforces: `budget >= 100`, `departureCity >= 2 chars`, etc.
-- `ItineraryDraftSchema`, `AccommodationTransportSchema`, `BudgetCalculationSchema` validate all AI output before rendering
+- `ItineraryDraftSchema`, `AccommodationTransportSchema` (includes `selectedIndex` for user selection), `BudgetCalculationSchema` validate all AI output before rendering
 - `cleanEmptyStrings()` converts AI empty strings (`""`) to `null` before Zod validation
 
 ## Content Security

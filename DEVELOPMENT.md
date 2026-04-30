@@ -46,24 +46,32 @@ L'app usa un flusso a 3 step anziché una singola chiamata AI monolitica:
 
 ### Step 1 — Itinerario (`step1Service.ts`)
 - **Input**: TravelInputs (destinazione, date, budget, profilo)
-- **Output**: ItineraryDraft (overview, meteo, sicurezza, programma, ispirazioni, fonti)
+- **Output**: ItineraryDraft (overview, meteo, sicurezza, programma, ispirazioni, fonti, mapPoints)
 - **AI**: 1 chiamata GLM-5.1 con web_search, `max_tokens: 16000`
 - **Auto-retry**: Se `finish_reason="length"` o JSON troncato o validazione Zod fallita, ritenta automaticamente con prompt compatto (`buildCompactPrompt()` — 2 attività/giorno, descrizioni brevi)
 - **Modificabile**: l'utente può richiedere modifiche → invalida Steps 2-3
 - **Pre-validation**: `cleanEmptyStrings()` converte `""` → `null`, poi Zod `.nullish()` accetta `null`
 - **Fonti**: array `sources` con blog, guide, siti ufficiali
+- **Distribuzione tappe**: Il prompt impone "REGOLE PER LA DISTRIBUZIONE DELLE TAPPE" — max N/2 tappe per viaggio di N giorni, città principali minimo 2-3 notti, modello base+escursione. Il prompt compatto include "TAPPE: MAX N/2 tappe..."
+- **Mappa**: `TravelMap` (Leaflet) mostrata in Step1ItineraryView con i `mapPoints` prima delle card giornaliere
+- **estimatedLocalCost**: Il prompt specifica che DEVE essere per-persona per-giorno (es. "€25 al giorno"), mai il totale del viaggio
 
 ### Step 2 — Alloggi & Trasporti (`step2Service.ts`)
 - **Input**: ItineraryDraft confermato + TravelInputs
 - **Output**: AccommodationTransport (hotel con `bookingUrl` + `officialUrl`, ristoranti, voli)
 - **AI**: 1 chiamata per tappa + 1 per voli, max 4000 token/chiamata
 - **`extractStops()`**: raggruppa giorni consecutivi per località, matching case-insensitive
+- **Selezione utente**: `selectedIndex` su AccommodationStop e FlightSegment. L'utente clicca per scegliere alloggio e trasporto per ogni tappa. Solo i selezionati vanno nel budget.
+- **TripTimeline**: timeline visiva delle tappe in cima (es. "Milano → Lisbona (3 notti) → Porto → Milano")
+- **RunningTotalBar**: riepilogo live dei costi selezionati (alloggi + trasporti)
 - **Non modificabile**: per cambiare, tornare allo Step 1
 
 ### Step 3 — Budget (`step3Service.ts`)
 - **Input**: ItineraryDraft + AccommodationTransport + TravelInputs
 - **Output**: BudgetCalculation (breakdown per categoria, warning se sfora, costTable espanso)
 - **Nessuna AI**: puro calcolo JavaScript, istantaneo
+- **Usa le selezioni utente**: calcola il budget usando `selectedIndex` da AccommodationStop e FlightSegment (non sempre `options[0]`)
+- **Smart transport cost**: parsing intelligente di `estimatedLocalCost` — rileva "al giorno" vs "totale" dal testo. Numeri grandi senza keyword ⇒ trattati come totale. Cap: €200/persona/giorno, trasporti locali mai >30% del budget totale.
 - **Salvataggio**: feedback visivo (Salvataggio... → Salvato! ✅)
 
 ### Salvataggio Progressivo (`storage-v2.ts`)
@@ -130,9 +138,9 @@ L'integrazione Unsplash arricchisce le viste con immagini reali:
 | Componente | Responsabilità |
 |-----------|---------------|
 | `StepIndicator` | Stepper visivo 3 step (orizontal desktop, vertical mobile) |
-| `Step1ItineraryView` | Display itinerario + Unsplash images + fonti + conferma/modifica |
-| `Step2AccommodationView` | Display alloggi (officialUrl + bookingUrl) + ristoranti + voli + conferma |
-| `Step3BudgetView` | Display budget + costTable + salva con feedback visivo |
+| `Step1ItineraryView` | Display itinerario + TravelMap (Leaflet) + Unsplash images + fonti + conferma/modifica |
+| `Step2AccommodationView` | TripTimeline + alloggi/trasporti selezionabili + RunningTotalBar + ristoranti + conferma |
+| `Step3BudgetView` | Display budget (da selezioni utente) + costTable + salva con feedback visivo |
 | `AuthProvider` | Sessione auth, profilo utente (persistSession: true) |
 | `ProfileForm` | Step 1 del form — profilo viaggiatore |
 | `SavedTrips` | Lista e gestione viaggi salvati (v2) |
@@ -157,3 +165,7 @@ L'integrazione Unsplash arricchisce le viste con immagini reali:
 8. **`cleanEmptyStrings()` sempre prima di Zod** — GLM-5.1 ritorna `""` per campi che non trova
 9. **`safeParse(j)` non `safeParse(json)`** — validare sempre il dato pulito, non il JSON grezzo
 10. **Auto-retry su troncamento** — se Step 1 fallisce per JSON troncato (`finish_reason: "length"`), il codice ritenta con `buildCompactPrompt()`
+11. **Distribuzione tappe** — il prompt Step 1 impone max N/2 tappe per viaggio di N giorni, città principali 2-3 notti. Se l'AI genera 10 tappe per 10 giorni, è un bug del prompt.
+12. **Budget usa `selectedIndex`** — calculateBudget() prende l'opzione selezionata dall'utente per alloggi e trasporti, non sempre `options[0]`
+13. **Smart transport cost** — `estimatedLocalCost` è ambiguo (per-giorno vs totale). Il codice lo parsifica intelligentemente e applica cap 30% budget + €200/persona/giorno.
+14. **Mappa in Step 1** — TravelMap usa i `mapPoints` dell'ItineraryDraft. Se l'AI non restituisce mapPoints validi, la mappa non viene renderizzata.
