@@ -60,7 +60,8 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 **Step 1 — Itinerary** (`src/services/step1Service.ts`):
 - Single AI call generating: destinationOverview, weatherInfo, safetyAndHealth, itinerary, localTips, transportInfo, travelHighlights, mapPoints, sources
 - NO flights, accommodations, restaurants, budget breakdown
-- `max_tokens: 12000` (increased from 8000 for richer descriptions)
+- `max_tokens: 16000` (increased from 12000 for long itineraries)
+- Auto-retry on truncation: if `finish_reason="length"` or JSON repair fails or `itinerary` is not an array, automatically retries with compact prompt (2 activities/day, shorter descriptions). Two attempts max.
 - Modifiable by user → invalidates Steps 2-3
 - Descriptions: 2-3 sentences for overview/highlights, 1-2 for activities
 - Sources: blog/guide/official URLs at the end
@@ -94,8 +95,8 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 
 | Function | File | Model | max_tokens | Tool |
 |----------|------|-------|------------|------|
-| `generateItinerary()` | `step1Service.ts` | `glm-5.1` | 12000 | web_search |
-| `modifyItinerary()` | `step1Service.ts` | `glm-5.1` | 12000 | web_search |
+| `generateItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
+| `modifyItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
 | `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 2000/flights | web_search |
 | `calculateBudget()` | `step3Service.ts` | — (pure JS) | — | — |
 | `getDestinationCountries()` | `travelService.ts` | — (Nominatim) | — | — |
@@ -231,7 +232,7 @@ src/
 │   ├── step2-contract.ts            # AccommodationTransport schema (with officialUrl + nullish)
 │   └── step3-contract.ts            # BudgetCalculation schema (with nullish)
 ├── services/
-│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + cleanEmptyStrings()
+│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + cleanEmptyStrings() + buildCompactPrompt() + auto-retry
 │   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops)
 │   ├── step3Service.ts              # calculateBudget() (pure JS)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
@@ -279,7 +280,9 @@ Never use `supabase.from().insert()` or `.select()` directly for saves — the J
 ### Zod Pitfalls with AI APIs
 - **`.optional()` vs `.nullish()`**: GLM-5.1 returns `null` for missing fields, not `undefined`. Use `.nullish()` for all `z.string()` and `z.number()` fields. Keep `.optional()` only for `z.array()` and `z.object()`.
 - **Empty strings**: GLM-5.1 returns `""` for URLs it can't find. Use `cleanEmptyStrings()` before Zod validation to convert `""` → `null`.
-- **max_tokens**: When using richer prompts (2-3 sentence descriptions), `max_tokens: 8000` is insufficient. Use `12000` for Step 1.
+- **max_tokens**: Step 1 uses `max_tokens: 16000` (increased from 12000 for longer itineraries). If still truncated, auto-retry with compact prompt kicks in.
+- **JSON truncation**: GLM-5.1 may truncate JSON on long trips (7+ days). The code auto-retries with `buildCompactPrompt()` (fewer activities, shorter descriptions). Check `finish_reason` in logs — if "length", the response was cut off.
+- **`safeParse(j)` vs `safeParse(json)`**: Always validate the cleaned data (`j` after `cleanEmptyStrings`), not the raw parsed JSON.
 
 ### Git Conflict Rule
 When rebasing causes conflicts, read both sides carefully. Trinity's fixes may overlap with ours; merge intelligently.

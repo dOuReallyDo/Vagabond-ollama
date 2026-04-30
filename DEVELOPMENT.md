@@ -22,7 +22,7 @@
 3. **Variabili d'Ambiente**:
    Crea un file `.env` nella root del progetto:
    ```env
-   ZHIPU_API_KEY=your-zhipu-api-key-here
+   ZHIPU_API_KEY=your-z...here
    VITE_SUPABASE_URL=https://your-project.supabase.co
    VITE_SUPABASE_ANON_KEY=your-anon-key
    GOOGLE_SAFE_BROWSING_API_KEY=***
@@ -46,23 +46,30 @@ L'app usa un flusso a 3 step anziché una singola chiamata AI monolitica:
 
 ### Step 1 — Itinerario (`step1Service.ts`)
 - **Input**: TravelInputs (destinazione, date, budget, profilo)
-- **Output**: ItineraryDraft (overview, meteo, sicurezza, programma, ispirazioni)
-- **AI**: 1 chiamata GLM-5.1 con web_search, max 8000 token
+- **Output**: ItineraryDraft (overview, meteo, sicurezza, programma, ispirazioni, fonti)
+- **AI**: 1 chiamata GLM-5.1 con web_search, `max_tokens: 16000`
+- **Auto-retry**: Se `finish_reason="length"` o JSON troncato o validazione Zod fallita, ritenta automaticamente con prompt compatto (`buildCompactPrompt()` — 2 attività/giorno, descrizioni brevi)
 - **Modificabile**: l'utente può richiedere modifiche → invalida Steps 2-3
+- **Pre-validation**: `cleanEmptyStrings()` converte `""` → `null`, poi Zod `.nullish()` accetta `null`
+- **Fonti**: array `sources` con blog, guide, siti ufficiali
 
-### Step 2 — Alloggi &Trasporti (`step2Service.ts`)
+### Step 2 — Alloggi & Trasporti (`step2Service.ts`)
 - **Input**: ItineraryDraft confermato + TravelInputs
-- **Output**: AccommodationTransport (hotel, ristoranti, voli)
+- **Output**: AccommodationTransport (hotel con `bookingUrl` + `officialUrl`, ristoranti, voli)
 - **AI**: 1 chiamata per tappa + 1 per voli, max 4000 token/chiamata
+- **`extractStops()`**: raggruppa giorni consecutivi per località, matching case-insensitive
 - **Non modificabile**: per cambiare, tornare allo Step 1
 
 ### Step 3 — Budget (`step3Service.ts`)
 - **Input**: ItineraryDraft + AccommodationTransport + TravelInputs
-- **Output**: BudgetCalculation (breakdown per categoria, warning se sfora)
+- **Output**: BudgetCalculation (breakdown per categoria, warning se sfora, costTable espanso)
 - **Nessuna AI**: puro calcolo JavaScript, istantaneo
+- **Salvataggio**: feedback visivo (Salvataggio... → Salvato! ✅)
 
 ### Salvataggio Progressivo (`storage-v2.ts`)
 Ogni step viene salvato appena completato. Modifica Step 1 → invalida e cancella Steps 2-3.
+
+**Architettura REST**: NON usa Supabase JS client per CRUD. Usa `fetch()` diretto alla REST API Supabase con JWT letto da localStorage (`sb-{ref}-auth-token`). Fallback a localStorage se offline.
 
 ### DB: `saved_trips_v2`
 Tabella separata da `saved_trips` (legacy). Colonne: `step1_data`, `step2_data`, `step3_data` (JSONB) + flag `_completed`.
@@ -86,23 +93,32 @@ Utente → Profile Form → Travel Form → Step 1: generateItinerary()
                                               ↓
                                     BudgetCalculation
                                               ↓
-                                    Salva viaggio (Supabase)
+                                    Salva viaggio (Supabase REST + localStorage)
 ```
 
 ### Flusso Legacy (feature flag `useV2Flow = false`)
 ```
 Utente → Travel Form → generateTravelPlan() (monolitico)
                               ↓
-                        TravelPlan → UI → Salva
+                        TravelPlan → URL sanitization → UI → Salva
 ```
+
+## Immagini Unsplash
+
+L'integrazione Unsplash arricchisce le viste con immagini reali:
+1. `useEffect` in App.tsx si attiva quando `step1Data` è disponibile
+2. Estrae keyword da destinationOverview, attractions, activities
+3. Cerca Unsplash API con stagger 300ms, max 15 query
+4. Fallback a picsum.photos se no key o no risultati
 
 ## Modelli AI
 
 | Task | Modello | Max Tokens | Note |
 |------|---------|-----------|------|
-| Itinerario (Step 1) | `glm-5.1` | 8000 | web_search, 1 chiamata |
-| Modifica itinerario | `glm-5.1` | 8000 | web_search, 1 chiamata |
+| Itinerario (Step 1) | `glm-5.1` | 16000 | web_search, auto-retry con prompt compatto |
+| Modifica itinerario | `glm-5.1` | 16000 | web_search, auto-retry |
 | Alloggi per tappa (Step 2) | `glm-5.1` | 4000 | web_search, 1 chiamata/tappa |
+| Retry alloggi (Step 2) | `glm-5.1` | 3000 | Prompt semplificato |
 | Voli (Step 2) | `glm-5.1` | 2000 | web_search, 1 chiamata |
 | Budget (Step 3) | — (puro JS) | — | Nessuna chiamata AI |
 | Lookup nazioni | — (Nominatim) | — | API gratuita OpenStreetMap |
@@ -113,31 +129,21 @@ Utente → Travel Form → generateTravelPlan() (monolitico)
 
 | Componente | Responsabilità |
 |-----------|---------------|
-| `StepIndicator` | Stepper visivo 3 step |
-| `Step1ItineraryView` | Display itinerario + conferma/modifica |
-| `Step2AccommodationView` | Display alloggi + ristoranti + voli + conferma |
-| `Step3BudgetView` | Display budget + salva viaggio |
-| `AuthProvider` | Sessione auth, profilo utente |
+| `StepIndicator` | Stepper visivo 3 step (orizontal desktop, vertical mobile) |
+| `Step1ItineraryView` | Display itinerario + Unsplash images + fonti + conferma/modifica |
+| `Step2AccommodationView` | Display alloggi (officialUrl + bookingUrl) + ristoranti + voli + conferma |
+| `Step3BudgetView` | Display budget + costTable + salva con feedback visivo |
+| `AuthProvider` | Sessione auth, profilo utente (persistSession: true) |
 | `ProfileForm` | Step 1 del form — profilo viaggiatore |
-| `SavedTrips` | Lista e gestione viaggi salvati |
+| `SavedTrips` | Lista e gestione viaggi salvati (v2) |
 
-## Database Schema
+## Deploy (Vercel)
 
-Vedere `supabase/schema.sql` per il DDL completo.
-
-### Tabella `profiles`
-Collegata a `auth.users` tramite `id`. Contiene: `age_range`, `traveler_type`, `interests[]`, `pace`, `mobility`, `familiarity`. Row Level Security abilitata.
-
-### Tabella `saved_trips` (legacy)
-Tabella originale. `id`, `user_id`, `trip_name`, `destination`, `inputs` (JSONB), `plan` (JSONB), `is_favorite`. RLS abilitata.
-
-### Tabella `saved_trips_v2` (3-step)
-Nuova tabella per la versione 3-step:
-- `step1_data` (JSONB ItineraryDraft) + `step1_completed` (boolean)
-- `step2_data` (JSONB AccommodationTransport) + `step2_completed` (boolean)
-- `step3_data` (JSONB BudgetCalculation) + `step3_completed` (boolean)
-- `is_complete` (boolean) — true solo quando tutti e 3 gli step sono completi
-- RLS abilitata con policy per user_id
+`vercel.json` configura:
+- Build: `npm run build` → `dist/`
+- Route SPA: tutte le route non-API riscrivono a `/index.html`
+- Route API: `/api/*` → serverless functions (`api/*.ts`)
+- **Importante**: Route definite SOLO in `server.ts` restituiscono 405 su Vercel. Aggiungere sempre `api/*.ts` per ogni endpoint.
 
 ## ⚠️ Regole Critiche di Sviluppo
 
@@ -147,3 +153,7 @@ Nuova tabella per la versione 3-step:
 4. **Step 3 non è AI** — è puro calcolo JS. Non aggiungere chiamate AI.
 5. **Modifica Step 1 invalida Steps 2-3** — sempre chiamare `invalidateStepsAfter(tripId, 1)` quando si modifica l'itinerario
 6. **Feature flag `useV2Flow`** — default `true`. Se `false`, usa il flusso monolitico legacy
+7. **Zod `.nullish()` non `.optional()`** — GLM-5.1 ritorna `null` non `undefined`. Usare `.nullish()` per `z.string()` e `z.number()`
+8. **`cleanEmptyStrings()` sempre prima di Zod** — GLM-5.1 ritorna `""` per campi che non trova
+9. **`safeParse(j)` non `safeParse(json)`** — validare sempre il dato pulito, non il JSON grezzo
+10. **Auto-retry su troncamento** — se Step 1 fallisce per JSON troncato (`finish_reason: "length"`), il codice ritenta con `buildCompactPrompt()`
