@@ -129,14 +129,20 @@ function HotelCard({
   isSelected,
   onSelect,
   stopName,
-  inputs,
+  checkin,
+  checkout,
+  adults,
+  children,
 }: {
   hotel: AccommodationStop['options'][0];
   nights?: number;
   isSelected: boolean;
   onSelect: () => void;
   stopName?: string;
-  inputs?: { startDate?: string; endDate?: string; people?: { adults: number; children: { age: number }[] } };
+  checkin?: string;
+  checkout?: string;
+  adults?: number;
+  children?: { age: number }[];
 }) {
   // Generate real search URLs — AI URLs are often fake/deep links that 404
   // Only trust booking.com/searchresults or tripadvisor /Search?q= URLs from AI.
@@ -145,8 +151,8 @@ function HotelCard({
     // Only trust AI booking.com URL if it's a search page (not a deep /hotel/ link)
     if (hotel.bookingUrl && hotel.bookingUrl.includes('booking.com/searchresults')) return hotel.bookingUrl;
     // Always generate a real Booking.com search URL — it works with real hotel names + dates
-    if (hotel.name && stopName && inputs?.startDate && inputs?.endDate) {
-      return getBookingSearchUrlWithDates(hotel.name, stopName, inputs.startDate, inputs.endDate, inputs.people?.adults || 2, inputs.people?.children);
+    if (hotel.name && stopName && checkin && checkout) {
+      return getBookingSearchUrlWithDates(hotel.name, stopName, checkin, checkout, adults || 2, children);
     }
     if (hotel.name && stopName) return getBookingSearchUrl(hotel.name, stopName);
     return hotel.bookingUrl || null;
@@ -276,12 +282,12 @@ function HotelCard({
 // ─── RESTAURANT CARD ────────────────────────────────────────────────────────
 
 function RestaurantCard({ restaurant, stopName }: { restaurant: RestaurantStop['options'][0]; stopName?: string }) {
-  // Generate real TripAdvisor search URL — AI deep links are often fake/404
+  // Generate real URL — TripAdvisor Search blocks, use Google instead
   const effectiveUrl = (() => {
     // Only trust AI tripadvisor URL if it's a search page
     if (restaurant.sourceUrl && (restaurant.sourceUrl.includes('tripadvisor.it/Search') || restaurant.sourceUrl.includes('tripadvisor.com/Search'))) return restaurant.sourceUrl;
-    // Generate search URL from restaurant name + city
-    if (restaurant.name && stopName) return getTripAdvisorSearchUrl(restaurant.name, stopName);
+    // Google search — first result is always TripAdvisor anyway
+    if (restaurant.name && stopName) return getGoogleSearchUrl(`${restaurant.name} ${stopName} tripadvisor`);
     if (restaurant.name) return getGoogleSearchUrl(`${restaurant.name} ristorante`);
     return null;
   })();
@@ -565,6 +571,28 @@ export default function Step2AccommodationView({
   };
 
   const numPeople = inputs.people.adults + inputs.people.children.length;
+
+  // Calculate check-in/checkout dates per stop from itinerary + trip start date
+  // Each stop maps to consecutive days in the itinerary. First stop starts on startDate,
+  // each subsequent stop starts after the previous stop's nights.
+  const stopDates = useMemo(() => {
+    const result: Record<string, { checkin: string; checkout: string }> = {};
+    const startDate = new Date(inputs.startDate);
+    let dayOffset = 0;
+    for (const stop of data.accommodations) {
+      const nights = stop.nights ?? 1;
+      const checkinDate = new Date(startDate);
+      checkinDate.setDate(checkinDate.getDate() + dayOffset);
+      const checkoutDate = new Date(checkinDate);
+      checkoutDate.setDate(checkoutDate.getDate() + nights);
+      result[stop.stopName] = {
+        checkin: checkinDate.toISOString().split('T')[0],
+        checkout: checkoutDate.toISOString().split('T')[0],
+      };
+      dayOffset += nights;
+    }
+    return result;
+  }, [data.accommodations, inputs.startDate]);
   const departureCity = inputs.departureCity || 'Città di partenza';
 
   // ── Loading State ──────────────────────────────────────────────────────────
@@ -782,7 +810,10 @@ export default function Step2AccommodationView({
                               isSelected={(stop.selectedIndex ?? 0) === j}
                               onSelect={readOnly ? () => {} : () => onAccommodationSelect(i, j)}
                               stopName={stop.stopName}
-                              inputs={inputs}
+                              checkin={stopDates[stop.stopName]?.checkin}
+                              checkout={stopDates[stop.stopName]?.checkout}
+                              adults={inputs.people.adults}
+                              children={inputs.people.children}
                             />
                           ))}
                         </div>
