@@ -17,6 +17,7 @@ import { cn } from '../App';
 import { TravelMap } from './TravelMap';
 import type { ItineraryDraft } from '../shared/step1-contract';
 import type { TravelInputs } from '../shared/contract';
+import { isWhitelistedUrl, getGoogleSearchUrl } from '../lib/urlSafety';
 
 // ─── IMAGE HELPERS (mirrored from App.tsx) ───────────────────────────────────
 
@@ -530,9 +531,9 @@ export default function Step1ItineraryView({
                                     </div>
                                   )}
 
-                                  {act.sourceUrl && (
+                                  {!isGeneric && (
                                     <a
-                                      href={act.sourceUrl}
+                                      href={act.sourceUrl && isWhitelistedUrl(act.sourceUrl) ? act.sourceUrl : getGoogleSearchUrl(`${act.name || ''} ${act.location || destination}`)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-accent hover:underline"

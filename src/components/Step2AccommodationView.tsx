@@ -19,6 +19,7 @@ import { cn } from '../App';
 import type { AccommodationTransport, AccommodationStop, RestaurantStop, FlightSegment } from '../shared/step2-contract';
 import type { TravelInputs } from '../shared/contract';
 import type { ItineraryDraft } from '../shared/step1-contract';
+import { isWhitelistedUrl, getBookingSearchUrl, getBookingSearchUrlWithDates, getTripAdvisorSearchUrl, getGoogleSearchUrl, getAirlineSearchUrl } from '../lib/urlSafety';
 
 // ─── STAR RATING ────────────────────────────────────────────────────────────
 
@@ -127,12 +128,37 @@ function HotelCard({
   nights,
   isSelected,
   onSelect,
+  stopName,
+  inputs,
 }: {
   hotel: AccommodationStop['options'][0];
   nights?: number;
   isSelected: boolean;
   onSelect: () => void;
+  stopName?: string;
+  inputs?: { startDate?: string; endDate?: string; people?: { adults: number; children: { age: number }[] } };
 }) {
+  // Generate real search URLs — AI URLs are often fake/broken
+  const effectiveBookingUrl = (() => {
+    // If AI gave a real booking.com URL with searchresults, trust it
+    if (hotel.bookingUrl && hotel.bookingUrl.includes('booking.com/searchresults')) return hotel.bookingUrl;
+    // If AI gave a valid whitelisted URL (tripadvisor, etc.), trust it
+    if (hotel.bookingUrl && isWhitelistedUrl(hotel.bookingUrl)) return hotel.bookingUrl;
+    // Otherwise generate a real Booking.com search URL with dates
+    if (hotel.name && stopName && inputs?.startDate && inputs?.endDate) {
+      return getBookingSearchUrlWithDates(hotel.name, stopName, inputs.startDate, inputs.endDate, inputs.people?.adults || 2, inputs.people?.children);
+    }
+    if (hotel.name && stopName) return getBookingSearchUrl(hotel.name, stopName);
+    return hotel.bookingUrl || null;
+  })();
+
+  const effectiveOfficialUrl = (() => {
+    if (hotel.officialUrl && isWhitelistedUrl(hotel.officialUrl)) return hotel.officialUrl;
+    // Fallback: Google search for official site
+    if (hotel.name) return getGoogleSearchUrl(`${hotel.name} sito ufficiale`);
+    return null;
+  })();
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -217,9 +243,9 @@ function HotelCard({
           )}
         </div>
         <div className="flex items-center gap-3">
-          {hotel.officialUrl && (
+          {effectiveOfficialUrl && (
             <a
-              href={hotel.officialUrl}
+              href={effectiveOfficialUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -228,9 +254,9 @@ function HotelCard({
               Sito ufficiale <ExternalLink className="w-3 h-3" />
             </a>
           )}
-          {hotel.bookingUrl && (
+          {effectiveBookingUrl && (
             <a
-              href={hotel.bookingUrl}
+              href={effectiveBookingUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -247,7 +273,15 @@ function HotelCard({
 
 // ─── RESTAURANT CARD ────────────────────────────────────────────────────────
 
-function RestaurantCard({ restaurant }: { restaurant: RestaurantStop['options'][0] }) {
+function RestaurantCard({ restaurant, stopName }: { restaurant: RestaurantStop['options'][0]; stopName?: string }) {
+  // Generate real TripAdvisor search URL — AI URLs are often fake
+  const effectiveUrl = (() => {
+    if (restaurant.sourceUrl && isWhitelistedUrl(restaurant.sourceUrl)) return restaurant.sourceUrl;
+    if (restaurant.name && stopName) return getTripAdvisorSearchUrl(restaurant.name, stopName);
+    if (restaurant.name) return getGoogleSearchUrl(`${restaurant.name} ristorante`);
+    return restaurant.sourceUrl || null;
+  })();
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -277,9 +311,9 @@ function RestaurantCard({ restaurant }: { restaurant: RestaurantStop['options'][
         <span className="font-bold">{restaurant.priceRange}</span>
       </div>
 
-      {restaurant.sourceUrl && (
+      {(effectiveUrl || restaurant.sourceUrl) && (
         <a
-          href={restaurant.sourceUrl}
+          href={effectiveUrl || restaurant.sourceUrl!}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-accent hover:underline"
@@ -307,6 +341,12 @@ function FlightCard({
   const isCarRoute = flight.airline?.toLowerCase() === 'auto privata';
   const routeParts = flight.route?.split(/\s*(?:->|→)\s*/) || [];
   const totalPrice = flight.estimatedPrice * numPeople;
+
+  const effectiveFlightUrl = (() => {
+    if (flight.bookingUrl && isWhitelistedUrl(flight.bookingUrl)) return flight.bookingUrl;
+    if (flight.airline) return getAirlineSearchUrl(flight.airline);
+    return flight.bookingUrl || null;
+  })();
 
   return (
     <motion.div
@@ -413,9 +453,9 @@ function FlightCard({
         )}
       </div>
 
-      {flight.bookingUrl && (
+      {effectiveFlightUrl && (
         <a
-          href={flight.bookingUrl}
+          href={effectiveFlightUrl}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
@@ -730,6 +770,8 @@ export default function Step2AccommodationView({
                               nights={stop.nights ?? undefined}
                               isSelected={(stop.selectedIndex ?? 0) === j}
                               onSelect={readOnly ? () => {} : () => onAccommodationSelect(i, j)}
+                              stopName={stop.stopName}
+                              inputs={inputs}
                             />
                           ))}
                         </div>
@@ -765,7 +807,7 @@ export default function Step2AccommodationView({
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {stop.options.map((restaurant, j) => (
-                      <RestaurantCard key={j} restaurant={restaurant} />
+                      <RestaurantCard key={j} restaurant={restaurant} stopName={stop.stopName} />
                     ))}
                   </div>
                 </div>

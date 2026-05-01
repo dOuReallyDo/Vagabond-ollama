@@ -307,6 +307,14 @@ export function getGoogleMapsUrl(name: string, city: string): string {
 }
 
 /**
+ * Generates a safe Google Search URL for anything.
+ */
+export function getGoogleSearchUrl(query: string): string {
+  const q = encodeURIComponent(query);
+  return `https://www.google.com/search?q=${q}`;
+}
+
+/**
  * Generates a safe Viaggiaresicuri (Italian govt travel advisory) URL.
  */
 export function getViaggiaSicuriUrl(country: string): string {

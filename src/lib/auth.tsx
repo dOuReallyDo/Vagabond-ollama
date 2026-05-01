@@ -3,6 +3,27 @@ import { supabase } from "./supabase";
 import type { User, Session } from "@supabase/supabase-js";
 
 // =============================================
+// Auth token helper — reads JWT from localStorage
+// (avoids Supabase client's initializePromise hang)
+// Copied locally to avoid circular deps with storage.ts
+// =============================================
+function getAccessTokenFromLocalStorage(): string | null {
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const projectRef = supabaseUrl.split("//")[1].split(".")[0];
+    const sessionKey = `sb-${projectRef}-auth-token`;
+    const raw = localStorage.getItem(sessionKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return parsed?.access_token || parsed?.currentSession?.access_token || null;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+// =============================================
 // Types
 // =============================================
 export interface TravelerProfile {
@@ -50,12 +71,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("age_range, traveler_type, interests, pace, mobility, familiarity, display_name")
-        .eq("id", userId)
-        .single();
-      if (!error && data) setProfile(data as TravelerProfile);
+      const token = getAccessTokenFromLocalStorage();
+      if (!token) { setProfile(null); return; }
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/profiles?id=eq.${userId}&select=age_range,traveler_type,interests,pace,mobility,familiarity,display_name`,
+        {
+          method: "GET",
+          headers: {
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      if (!res.ok) { setProfile(null); return; }
+      const data = await res.json();
+      if (data && data.length > 0) setProfile(data[0] as TravelerProfile);
       else setProfile(null);
     } catch {
       setProfile(null);
@@ -140,13 +172,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateProfile = async (updates: Partial<TravelerProfile>) => {
     if (!user) return;
-    const { error } = await supabase
-      .from("profiles")
-      .update(updates)
-      .eq("id", user.id);
-    if (error) {
-      console.error("[Auth] Error updating profile:", error);
-      throw error;
+    const token = getAccessTokenFromLocalStorage();
+    if (!token) throw new Error("No access token available");
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const res = await fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${user.id}`, {
+      method: "PATCH",
+      headers: {
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const errBody = await res.text();
+      console.error("[Auth] Error updating profile:", res.status, errBody);
+      throw new Error(`Profile update failed: ${res.status}`);
     }
     await fetchProfile(user.id);
   };

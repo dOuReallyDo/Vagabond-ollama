@@ -3575,61 +3575,48 @@ export default function App() {
             </div>
           </div>
           {/* Step 1: Itinerary */}
-          {activeStep === 1 && step1Data && (viewingSavedTrip || !step1Confirmed) && (
+          {activeStep === 1 && step1Data && (
             <Step1ItineraryView
               data={step1Data}
               inputs={lastInputs!}
               isLoading={loading}
-              onConfirm={viewingSavedTrip ? undefined : confirmItinerary}
-              onModify={viewingSavedTrip ? undefined : handleModifyItinerary}
+              onConfirm={(step1Confirmed || viewingSavedTrip) ? undefined : confirmItinerary}
+              onModify={(step1Confirmed || viewingSavedTrip) ? undefined : handleModifyItinerary}
               unsplashImages={unsplashImages}
-              readOnly={viewingSavedTrip}
-              onNavigateNext={viewingSavedTrip ? () => setActiveStep(2) : undefined}
+              readOnly={step1Confirmed || viewingSavedTrip}
+              onNavigateNext={(step1Confirmed || viewingSavedTrip) ? () => setActiveStep(2) : undefined}
             />
           )}
-          {/* Step 1 confirmed but waiting for Step 2 to load — show summary (creation mode only) */}
-          {activeStep === 1 && !viewingSavedTrip && step1Confirmed && (
+          {/* Step 1 confirmed & waiting for Step 2 to load — transient placeholder (creation mode only, next step not ready) */}
+          {activeStep === 1 && !viewingSavedTrip && step1Confirmed && !step2Data && (
             <div className="max-w-4xl mx-auto px-6 pb-12 text-center">
               <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
               <h2 className="text-2xl font-serif text-brand-ink mb-2">Itinerario confermato!</h2>
               <p className="text-brand-ink/60 mb-6">Lo step 2 è in caricamento…</p>
-              <button
-                onClick={() => { if (step2Data) setActiveStep(2); }}
-                disabled={!step2Data}
-                className="bg-brand-accent text-white px-6 py-3 rounded-2xl font-bold hover:bg-brand-accent/85 transition-colors disabled:opacity-50"
-              >
-                Vai agli alloggi
-              </button>
             </div>
           )}
           {/* Step 2: Accommodations & Transport */}
-          {activeStep === 2 && step2Data && (viewingSavedTrip || !step2Confirmed) && (
+          {activeStep === 2 && step2Data && (
             <Step2AccommodationView
               data={step2Data}
               inputs={lastInputs!}
               itinerary={step1Data!}
               isLoading={loading}
               loadingProgress={step2LoadingProgress}
-              onConfirm={viewingSavedTrip ? () => {} : confirmAccommodations}
+              onConfirm={(step2Confirmed || viewingSavedTrip) ? () => {} : confirmAccommodations}
               onBack={viewingSavedTrip ? () => setActiveStep(1) : () => { setActiveStep(1); setStep2Confirmed(false); }}
               onAccommodationSelect={handleAccommodationSelect}
               onFlightSelect={handleFlightSelect}
-              readOnly={viewingSavedTrip}
-              onNavigateNext={viewingSavedTrip ? () => setActiveStep(3) : undefined}
+              readOnly={step2Confirmed || viewingSavedTrip}
+              onNavigateNext={(step2Confirmed || viewingSavedTrip) ? () => setActiveStep(3) : undefined}
             />
           )}
-          {/* Step 2 confirmed but waiting (creation mode only) */}
-          {activeStep === 2 && !viewingSavedTrip && step2Confirmed && (
+          {/* Step 2 confirmed & waiting for Step 3 — transient placeholder (creation mode only, next step not ready) */}
+          {activeStep === 2 && !viewingSavedTrip && step2Confirmed && !step3Data && (
             <div className="max-w-4xl mx-auto px-6 pb-12 text-center">
               <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-4" />
               <h2 className="text-2xl font-serif text-brand-ink mb-2">Alloggi confermati!</h2>
-              <button
-                onClick={() => { if (step3Data) setActiveStep(3); }}
-                disabled={!step3Data}
-                className="bg-brand-accent text-white px-6 py-3 rounded-2xl font-bold hover:bg-brand-accent/85 transition-colors disabled:opacity-50"
-              >
-                Vai al budget
-              </button>
+              <p className="text-brand-ink/60 mb-6">Lo step 3 è in caricamento…</p>
             </div>
           )}
           {/* Step 3: Budget */}

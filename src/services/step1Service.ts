@@ -286,7 +286,7 @@ Struttura JSON (riempi TUTTI i campi):
       "title": "Titolo",
       "theme": "Tema",
       "activities": [
-        { "time": "09:00", "location": "Luogo", "name": "Nome", "description": "8 parole", "costEstimate": 20, "duration": "2h", "sourceUrl": "https://www.tripadvisor.it/Attraction_Review-..." }
+        { "time": "09:00", "location": "Luogo", "name": "Nome", "description": "8 parole", "costEstimate": 20, "duration": "2h", "sourceUrl": "https://www.google.com/search?q=Nome+Attivit%C3%A0+Lisbona" }
       ]
     }
   ],
@@ -377,7 +377,7 @@ REGOLE PER LA DISTRIBUZIONE DELLE TAPPE (OBBLIGATORIE):
 
 FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti.
 
-SOURCEURL DELLE ATTIVITÀ: Per OGNI attività nel itinerario giornaliero, includi un campo "sourceUrl" con un link a tripadvisor.it, google.com/maps o lonelyplanet.com. Questo è OBBLIGATORIO — l'utente deve poter cliccare per approfondire.
+SOURCEURL DELLE ATTIVITÀ: Per OGNI attività nel itinerario giornaliero, includi un campo "sourceUrl" con un link a ricerca Google (https://www.google.com/search?q=Nome+Attività+Città) o tripadvisor.it. Questo è OBBLIGATORIO — l'utente deve poter cliccare per approfondire. NON includere sourceUrl per pernottamento, check-in, check-out, colazione, tempo libero.
 
 ITINERARIO GIORNALIERO:
 ${dateList}
@@ -406,7 +406,7 @@ Struttura JSON richiesta (DEVI riempire TUTTI i campi con dati reali):
       "title": "Data - Titolo",
       "theme": "Tema",
       "activities": [
-        { "time": "08:00", "location": "L", "name": "N", "description": "1-2 frasi concise", "costEstimate": 0, "duration": "1h", "transport": "T", "travelTime": "10m", "tips": "T", "sourceUrl": "https://www.tripadvisor.it/Attraction_Review-..." }
+        { "time": "08:00", "location": "L", "name": "N", "description": "1-2 frasi concise", "costEstimate": 0, "duration": "1h", "transport": "T", "travelTime": "10m", "tips": "T", "sourceUrl": "https://www.google.com/search?q=Nome+Attivit%C3%A0+Lisbona" }
       ]
     }
   ],
@@ -621,7 +621,7 @@ REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
 
 FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti. Minimo 3, massimo 8 fonti.
 
-SOURCEURL DELLE ATTIVITÀ: Per OGNI attività, includi un campo "sourceUrl" con link a tripadvisor.it, google.com/maps o lonelyplanet.com. OBBLIGATORIO.
+SOURCEURL DELLE ATTIVITÀ: Per OGNI attività turistica, includi un campo "sourceUrl" con link a ricerca Google (https://www.google.com/search?q=...) o tripadvisor.it. OBBLIGATORIO. NO per pernottamento/check-in.
 
 Struttura JSON richiesta (stessa struttura dell'itinerario originale, aggiornata con le modifiche):
 {
