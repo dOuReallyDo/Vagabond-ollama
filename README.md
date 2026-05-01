@@ -7,8 +7,8 @@ Fork di [Vagabond AI](https://github.com/dOuReallyDo/Vagabond) migrato da Claude
 L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitica. Questo risolve i timeout di GLM-5.1 su viaggi complessi (14+ giorni):
 
 1. **Step 1 — Itinerario** (AI, 1 chiamata, max 16k token): destinazione, meteo, sicurezza, programma giorno per giorno, fonti, mappa
-2. **Step 2 — Alloggi & Trasporti** (AI, 1 chiamata per tappa + 1 per voli, max 4000 token): hotel con bookingUrl + officialUrl, ristoranti, voli/treni — **l'utente seleziona** alloggio e trasporto per ogni tappa
-3. **Step 3 — Budget** (JS puro, nessuna AI): calcolo automatico basato sulle **selezioni utente** con costTable espanso
+2. **Step 2 — Alloggi & Trasporti** (AI parallela, Promise.allSettled, 1 chiamata/tappa + voli in parallelo; segmenti auto programmatici, zero AI): hotel con bookingUrl + officialUrl, ristoranti, voli/treni/auto — **l'utente seleziona** alloggio e trasporto per ogni tappa
+3. **Step 3 — Budget** (JS puro, nessuna AI): 5 categorie (Trasporti, Alloggi, Attività, Cibo, Extra e Imprevisti), tabelle strutturate per categoria, calcolo basato sulle **selezioni utente**
 
 **Vantaggi:**
 - Ogni step ha un prompt più piccolo → meno timeout
@@ -18,7 +18,7 @@ L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitic
 - **Auto-retry**: se l'AI tronca il JSON, ritenta automaticamente con prompt compatto
 - **Distribuzione tappe**: Max N/2 tappe per viaggio di N giorni — niente cambio città ogni giorno
 - **Selezione utente**: solo gli alloggi e trasporti scelti vanno nel budget
-- **Costi realistici**: smart parsing dei costi trasporti locali (per-giorno vs totale), cap al 30% del budget
+- **Costi realistici**: 5 categorie budget (Trasporti, Alloggi, Attività, Cibo, Extra e Imprevisti), tabelle strutturate per categoria
 
 Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2Flow = false`.
 
@@ -29,7 +29,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **Auto-retry su troncamento**: Se il JSON è troncato, ritenta con prompt più conciso
 - **Mappe Interattive**: Integrazione con Leaflet/OpenStreetMap
 - **Ricerca Real-Time**: GLM-5.1 AI con web search per prezzi reali
-- **Budget Intelligence**: Calcolo automatico basato sulle selezioni utente con dettaglio per categoria, smart transport cost parsing
+- **Budget Intelligence**: Calcolo automatico basato sulle selezioni utente, 5 categorie con tabelle strutturate per categoria
 - **Profilo Viaggiatore**: Età, interessi, ritmo, mobilità — itinerari personalizzati
 - **Immagini Unsplash**: Foto reali per destinazione, attrazioni e attività
 - **Fonti verificabili**: Blog, guide e siti ufficiali per ogni itinerario
@@ -40,7 +40,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **URL Safety**: 3-layer protection per tutti i link (whitelist + structural + Google Safe Browsing)
 - **v2 URL Safety**: `sanitizeStep1Urls()` / `sanitizeStep2Urls()` — sanificazione dedicata per il flusso 3-step
 - **Search URL reali, niente deep link AI**: Il frontend genera SEMPRE search URL (Booking.com search, Google, TripAdvisor Search) dai dati reali. I deep link AI (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) sono ignorati — causano 404
-- **Car Route Layout**: FlightCard dedicato per "Auto privata" — mostra distanza, tempo, carburante+pedaggi e link Google Maps
+- **Car Route Programmatically**: `generateCarSegments()` crea segmenti auto in JS puro (zero AI) — distanza, carburante+pedaggi, durata, link Google Maps per tratta. 2 opzioni: Autostrada e Senza pedaggi
 - **Per-Stop Booking Date**: Booking.com URL con check-in/checkout per ogni tappa (non date intero viaggio)
 - **Step Navigation Read-Only**: Step 1 e 2 sempre visibili quando si naviga indietro, in modalità read-only
 - **localStorage Fallback**: Funziona anche senza login
@@ -51,8 +51,8 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 ┌─────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────┐
 │   FORM      │────►│  STEP 1          │────►│  STEP 2          │────►│  STEP 3      │
 │  (input)    │     │  ITINERARIO       │     │  ALLOGGI+TRASP   │     │  BUDGET       │
-│             │     │  AI (1 call)      │     │  AI (1 call/stop)│     │  Pure JS      │
-│             │     │  max 16k tokens   │     │  4k/stop, 4k flight│    │              │
+│             │     │  AI (1 call)      │     │  AI (parallel)   │     │  Pure JS      │
+│             │     │  max 16k tokens   │     │  auto: no AI     │     │  5 categorie  │
 │             │     │  → Conferma ✏️    │     │  → Conferma ✔️   │     │  → Salva 💾   │
 │             │     │  (modificabile)   │     │  (no modifica)   │     │              │
 └─────────────┘     └──────────────────┘     └──────────────────┘     └──────────────┘
@@ -91,15 +91,15 @@ src/
 │   └── step3-contract.ts            # BudgetCalculation schema (nullish)
 ├── services/
 │   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + buildCompactPrompt() + auto-retry
-│   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops + selectedIndex)
-│   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, smart transport cost)
+│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled, generateCarSegments(), estimateRoadKm())
+│   ├── step3Service.ts              # calculateBudget() (pure JS, 5 categorie, tabelle strutturate, no trasporti locali)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
 ├── components/
 │   ├── StepIndicator.tsx            # 3-step visual stepper
 │   ├── Step1ItineraryView.tsx       # Step 1: itinerary + TravelMap + Unsplash images + sources + confirm/modify
-│   ├── Step2AccommodationView.tsx   # Step 2: TripTimeline + selectable hotels/flights + RunningTotalBar
-│   ├── Step3BudgetView.tsx          # Step 3: budget breakdown + save feedback
+│   ├── Step2AccommodationView.tsx   # Step 2: TripTimeline + selectable hotels/flights + RunningTotalBar + sticky map + car segments
+│   ├── Step3BudgetView.tsx          # Step 3: 5 categorie budget + structured tables + save feedback
 │   ├── AuthForm.tsx                 # Login/Signup UI
 │   ├── ProfileForm.tsx              # Profilo viaggiatore
 │   ├── SavedTrips.tsx              # Lista viaggi salvati (legacy)

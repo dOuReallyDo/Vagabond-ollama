@@ -59,8 +59,10 @@ L'app usa un flusso a 3 step anziché una singola chiamata AI monolitica:
 
 ### Step 2 — Alloggi & Trasporti (`step2Service.ts`)
 - **Input**: ItineraryDraft confermato + TravelInputs
-- **Output**: AccommodationTransport (hotel con `bookingUrl` + `officialUrl`, ristoranti, voli)
-- **AI**: 1 chiamata per tappa + 1 per voli, max 4000 token/chiamata (voli aumentato da 2000 a 4000)
+- **Output**: AccommodationTransport (hotel con `bookingUrl` + `officialUrl`, ristoranti, voli, segmenti auto)
+- **AI parallel**: `Promise.allSettled` per tutte le ricerche per-tappa + voli in parallelo (non più sequenziale). Preferenza auto salta la chiamata AI voli.
+- **max 4000 token/chiamata** (voli aumentato da 2000 a 4000)
+- **Programmatic car segments**: Quando `flightPreference` include "auto", `generateCarSegments()` crea un segmento per tratta (partenza→tappa1→...→ritorno) con distanza stimata, costo carburante+pedaggi, durata, URL Google Maps per segmento — **nessuna chiamata AI per auto**. `estimateRoadKm()` con tabella 80+ rotte europee, fallback 400km. 2 opzioni per segmento: Autostrada (€0.15/km carburante + €0.07/km pedaggi) e Senza pedaggi (solo carburante, +30% tempo). FlightCard usa `flight.bookingUrl` direttamente.
 - **`extractStops()`**: raggruppa giorni consecutivi per località, matching case-insensitive
 - **Markdown code block stripping**: GLM-5.1 con `web_search` wrap JSON in `\`\`\`json...\`\`\``. Tutti e 3 i parse point (alloggi primari, retry alloggi, voli) stripsano i blocchi markdown prima dell'estrazione JSON. Senza questo, `indexOf("{")` ritorna -1 → "Nessun JSON valido" → `flights = []`.
 - **`cleanEmptyStrings()`**: Applicato prima di Zod parse in tutti e 3 i parse point. GLM-5.1 ritorna `""` per campi nullish (departureTime, arrivalTime, bookingUrl, duration) — Zod `.nullish()` rifiuta `""`.
@@ -70,14 +72,22 @@ L'app usa un flusso a 3 step anziché una singola chiamata AI monolitica:
  - **Selezione utente**: `selectedIndex` su AccommodationStop e FlightSegment. L'utente clicca per scegliere alloggio e trasporto per ogni tappa. Solo i selezionati vanno nel budget.
 - **TripTimeline**: timeline visiva delle tappe in cima (es. "Milano → Lisbona (3 notti) → Porto → Milano")
 - **RunningTotalBar**: riepilogo live dei costi selezionati (alloggi + trasporti)
+- **Sticky map**: layout 2 colonne con TravelMap sticky a destra (lg+), marker hotel + attrazioni itinerario, etichette tappe sotto la mappa
 - **Non modificabile**: per cambiare, tornare allo Step 1
 
 ### Step 3 — Budget (`step3Service.ts`)
 - **Input**: ItineraryDraft + AccommodationTransport + TravelInputs
-- **Output**: BudgetCalculation (breakdown per categoria, warning se sfora, costTable espanso)
+- **Output**: BudgetCalculation (breakdown per 5 categorie, warning se sfora, costTable strutturato)
 - **Nessuna AI**: puro calcolo JavaScript, istantaneo
 - **Usa le selezioni utente**: calcola il budget usando `selectedIndex` da AccommodationStop e FlightSegment (non sempre `options[0]`)
-- **Smart transport cost**: parsing intelligente di `estimatedLocalCost` — rileva "al giorno" vs "totale" dal testo. Numeri grandi senza keyword ⇒ trattati come totale. Cap: €200/persona/giorno, trasporti locali mai >30% del budget totale.
+- **5 categorie**: Trasporti, Alloggi, Attività, Cibo, Extra e Imprevisti (10% buffer)
+- **Nessun "Trasporti locali"**: rimosso — fuoriviante e non sempre applicabile. Le stime di `estimatedLocalCost` erano inaffidabili
+- **Tabella strutturata per categoria**:
+  - Trasporti: Data | Descrizione | Costo
+  - Alloggi: Data arrivo | Luogo | Nome alloggio selezionato | Notti | Costo
+  - Attività: Data | Luogo | Descrizione | Durata | Costo
+  - Cibo/Extra: formato semplice nome + costo
+- **Campi estesi in costTable items**: `date`, `location`, `description`, `duration`, `hotelName`, `nights`
 - **Salvataggio**: feedback visivo (Salvataggio... → Salvato! ✅)
 
 ### Salvataggio Progressivo (`storage-v2.ts`)
@@ -133,7 +143,8 @@ L'integrazione Unsplash arricchisce le viste con immagini reali:
 | Modifica itinerario | `glm-5.1` | 16000 | web_search, auto-retry |
 | Alloggi per tappa (Step 2) | `glm-5.1` | 4000 | web_search, 1 chiamata/tappa |
 | Retry alloggi (Step 2) | `glm-5.1` | 3000 | Prompt semplificato |
-| Voli (Step 2) | `glm-5.1` | 4000 | web_search, 1 chiamata (aumentato da 2000) |
+|| Voli (Step 2) | `glm-5.1` | 4000 | web_search, 1 chiamata (solo se NON auto) ||
+|| Auto (Step 2) | — (puro JS) | — | `generateCarSegments()`, nessuna chiamata AI ||
 | Budget (Step 3) | — (puro JS) | — | Nessuna chiamata AI |
 | Lookup nazioni | — (Nominatim) | — | API gratuita OpenStreetMap |
 | Recensioni alloggi | `glm-5.1` | 1024 | web_search (legacy) |
@@ -176,14 +187,14 @@ L'integrazione Unsplash arricchisce le viste con immagini reali:
 12. **Auto-retry su troncamento** — se Step 1 fallisce per JSON troncato (`finish_reason: "length"`), il codice ritenta con `buildCompactPrompt()`
 13. **Distribuzione tappe** — il prompt Step 1 impone max N/2 tappe per viaggio di N giorni, città principali 2-3 notti. Se l'AI genera 10 tappe per 10 giorni, è un bug del prompt.
 14. **Budget usa `selectedIndex`** — calculateBudget() prende l'opzione selezionata dall'utente per alloggi e trasporti, non sempre `options[0]`
-15. **Smart transport cost** — `estimatedLocalCost` è ambiguo (per-giorno vs totale). Il codice lo parsifica intelligentemente e applica cap 30% budget + €200/persona/giorno.
+15. **Budget: 5 categorie, senza trasporti locali** — Le categorie sono: Trasporti (ex "Voli"), Alloggi, Attività, Cibo, Extra e Imprevisti. "Trasporti locali" rimosso — `estimatedLocalCost` era fuoriviante. Ogni categoria ha colonne specifiche nella tabella (vedi step3 sezione sopra).
 16. **Mappa in Step 1** — TravelMap usa i `mapPoints` dell'ItineraryDraft. Se l'AI non restituisce mapPoints validi, la mappa non viene renderizzata.
 17. **SavedTripsV2** — Quando `useV2Flow=true`, usare `SavedTripsV2` (non `SavedTrips`). Il componente mostra badge di completamento per ogni step, preferiti primi, e `onLoadTripV2(trip)` ripristina l'intero stato v2 (lastInputs, currentTripId, step data + completion flags, activeStep=1 per sola visualizzazione).
 18. **ReadOnly mode** — Tutti e 3 gli step component accettano `readOnly?: boolean`. Quando `viewingSavedTrip=true`, l'utente naviga tra step senza poter modificare/confermare/salvare. Lo StepIndicator è cliccabile per navigazione. "Nuovo viaggio" resetta `viewingSavedTrip=false`.
 19. **v2 URL Safety** — I flussi v2 usano `sanitizeStep1Urls()` e `sanitizeStep2Urls()` (non `sanitizeTravelPlanAsync()`). Vengono chiamati in App.tsx dopo `generateItinerary()`, `modifyItinerary()`, `searchAccommodationsAndTransport()`. Helper condivisi: `runAsyncSanitizer()`, `isSafeImageUrl()` per whitelist CDN immagini.
 20. **MAI fidarsi dei deep link AI** — GLM-5.1 fabbrica link falsi che 404 (es. `booking.com/hotel/it/fake.html`, `tripadvisor.it/Restaurant_Review-fake`). Il frontend genera SEMPRE search URL dai dati reali: HotelCard → `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)`, RestaurantCard → Google Search `${name} ${city} tripadvisor`, FlightCard (auto) → Google Maps, attività Step1 → `getGoogleSearchUrl()`. Solo le search URL AI sono trusted: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`.
 21. **Date per-stop per Booking.com** — Le URL Booking.com usano check-in/checkout calcolati per tappa (`stopDates` via `useMemo` in `Step2AccommodationView`), non le date dell'intero viaggio. Ogni tappa ha il suo `(checkIn, checkOut)` basato sulle notti dell'itinerario.
-22. **Car route layout in FlightCard** — Quando `flightPreference = "Auto privata"`, FlightCard mostra: distanza (km), tempo di viaggio, costo carburante+pedaggi — niente orari volo, niente "Prenota". Link: "Vedi su Google Maps" con URL direzioni. Campo `distance` aggiunto a `FlightSegmentSchema`.
+22. **Car route: generazione programmatica** — Quando `flightPreference` include "auto", `generateCarSegments()` crea segmenti in JS puro (nessuna chiamata AI). Un segmento per tratta (partenza→tappa1→tappa2→...→ritorno) con `estimateRoadKm()` (80+ rotte europee, fallback 400km), costo €0.15/km carburante + €0.07/km pedaggi, durata a 80km/h. 2 opzioni: Autostrada e Senza pedaggi. Ogni segmento ha Google Maps URL corretto (`flight.bookingUrl`). FlightCard usa `flight.airline.toLowerCase().includes('auto privata')`.
 23. **Auth profile: REST API, non Supabase JS** — `updateProfile` e `fetchProfile` in `auth.tsx` usano REST API + JWT da localStorage (helper `getAccessTokenFromLocalStorage()`), come `storage-v2.ts`. Questo risolve l'hang `initializePromise` che bloccava il pulsante salva profilo.
 24. **Navigazione step sempre visibile** — Gli Step 1 e 2 sono sempre renderizzati quando si torna indietro dallo Step 3. Ricevono `readOnly={step1Confirmed || viewingSavedTrip}`. I placeholder "Itinerario confermato!" / "Alloggi confermati!" appaiono solo quando i dati del prossimo step non sono ancora caricati.
 25. **sourceUrl OBBLIGATORIO** — Nei prompt Step 2: `sourceUrl` è OBBLIGATORIO per i ristoranti (link a tripadvisor.it). Nei prompt Step 1: `sourceUrl` OBBLIGATORIO per attività turistiche (google.com/search), NO per pernottamento/check-in. Esempi JSON include `sourceUrl` nello schema ristoranti e attività.

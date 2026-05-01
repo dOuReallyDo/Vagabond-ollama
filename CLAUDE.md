@@ -72,11 +72,12 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - **estimatedLocalCost**: Must be per-person per-day (e.g. "€25 al giorno"), never total trip cost
 
 **Step 2 — Accommodations + Transport** (`src/services/step2Service.ts`):
-- 1 AI call per stop (city) for hotels + restaurants, 1 call for flights
+- **Parallel AI calls**: `Promise.allSettled` fires all stop searches + flight search concurrently (no more sequential for-loop). Car preference (`flightPreference` includes "auto") skips flight AI call entirely.
 - `max_tokens: 4000` per stop, `4000` for flights (increased from 2000 — flight JSON with web_search results needs more tokens)
 - `extractStops()`: groups consecutive days by location, strips Italian prefixes, case-insensitive matching
 - Each stop returns 2-3 hotel options with `bookingUrl` + `officialUrl`
 - Each flight segment returns 2-3 transport options
+- **Programmatic car segments**: When `flightPreference` includes "auto", `generateCarSegments()` creates one segment per route leg (departure→stop1→stop2→...→return) with estimated distance, fuel+tolls cost, duration, per-segment Google Maps URL — **no AI call for car transport**. `estimateRoadKm()` has 80+ European route lookup table, fallback 400km. 2 options per segment: Autostrada (€0.15/km fuel + €0.07/km tolls) and Senza pedaggi (fuel only, +30% time). FlightCard uses `flight.bookingUrl` directly for Google Maps link.
 - Retry with simpler prompt on failure (skip failed stops)
 - Progress: "Ricerca alloggi a {{city}}... (n/total)"
 - **Markdown code block stripping**: GLM-5.1 with `web_search` wraps JSON responses in `\`\`\`json...\`\`\`` markdown blocks. All 3 parse points (primary accommodations, retry accommodations, flights) strip these blocks before JSON extraction. Without this, `text.indexOf("{")` returns -1 → "Nessun JSON valido" error → `flights = []` → transports section hidden.
@@ -86,7 +87,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - **Diagnostic logging**: `[Step2-Flights] Raw response length/first 300 chars` logged before parsing; errors logged on parse failure.
 - **User selection**: `selectedIndex` field on AccommodationStop and FlightSegment — user clicks to select preferred option per stop/segment
 - **Per-stop booking dates**: `stopDates` computed via `useMemo` in Step2AccommodationView, accumulating nights from `startDate` for Booking.com search URLs
-- **Car route layout**: When `flightPreference = "Auto privata"`, FlightCard shows distance (km), travel time, fuel+tolls cost, "Vedi su Google Maps" link — no flight times, no "Prenota"
+- **Sticky map**: 2-column flex layout with TravelMap sticky on right (lg+) showing hotel markers from accommodations + itinerary attractions. Stop labels under map.
 - **TripTimeline**: horizontal stop flow at top of page (e.g. "Milano → Lisbona (3 notti) → Porto (2gg) → Milano")
 - **RunningTotalBar**: live summary of selected accommodation + transport costs
 - NOT modifiable — to change, go back to Step 1 (invalidates 2-3)
@@ -94,8 +95,10 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 **Step 3 — Budget** (`src/services/step3Service.ts`):
 - **Pure JS calculation** — NO AI call
 - Sums costs using **user-selected** options (not always options[0]) via `selectedIndex` on AccommodationStop and FlightSegment
-- Estimates food, local transport, misc
-- **Smart transport cost**: parses `estimatedLocalCost` per-day vs total contextually ("al giorno" → multiply by days × people; "totale" → use as-is). Ambiguous large numbers treated as total. Cap: €200/person/day max, and local transport never exceeds 30% of budget.
+- **5 budget categories**: Trasporti (covers flights, trains, car, ferry), Alloggi, Attività, Cibo, Extra e Imprevisti
+- Removed "Trasporti locali" category (fuoriviante — not always applicable). No more `estimatedLocalCost` parsing or transport cap logic.
+- **Category-specific table layouts**: Trasporti (Data|Descrizione|Costo), Alloggi (Data arrivo|Luogo|Alloggio|Notti|Costo), Attività (Data|Luogo|Descrizione|Durata|Costo)
+- **Extended item fields** in step3-contract: `date`, `location`, `description`, `duration`, `hotelName`, `nights`
 - Generates budgetWarning if total exceeds input budget
 - `costTable` expanded by default
 
@@ -113,7 +116,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 |----------|------|-------|------------|------|
 | `generateItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
 | `modifyItinerary()` | `step1Service.ts` | `glm-5.1` | 16000 | web_search |
-| `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 4000/flights | web_search |
+| `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 4000/flights | web_search (parallel `Promise.allSettled`) |
 | `calculateBudget()` | `step3Service.ts` | — (pure JS) | — | — |
 | `getDestinationCountries()` | `travelService.ts` | — (Nominatim) | — | — |
 | `summarizeAccommodationReviews()` | `travelService.ts` | `glm-5.1` | 1024 | web_search |
@@ -140,7 +143,7 @@ All AI calls use the OpenAI SDK with Zhipu API (`baseURL: https://open.bigmodel.
 |-----------|---------|
 | `StepIndicator.tsx` | Visual stepper: ① Itinerario → ② Alloggi & Trasporti → ③ Budget |
 | `Step1ItineraryView.tsx` | Itinerary display + TravelMap (Leaflet) + Unsplash images + "Fonti e ispirazioni" + confirm/modify. **`readOnly` prop**: hides modify/conferma, shows "Avanti →" |
-| `Step2AccommodationView.tsx` | TripTimeline + selectable hotels (officialUrl + bookingUrl) + selectable flights + RunningTotalBar + restaurants per stop. **`readOnly` prop**: selection disabled, no conferma, shows "← Indietro" + "Avanti →" |
+| `Step2AccommodationView.tsx` | TripTimeline + selectable hotels (officialUrl + bookingUrl) + selectable flights/car segments + sticky TravelMap (2-col layout, lg+) + RunningTotalBar + restaurants per stop. **`readOnly` prop**: selection disabled, no conferma, shows "← Indietro" + "Avanti →" |
 | `Step3BudgetView.tsx` | Budget breakdown (uses user selections) + save with visual feedback (saving → saved ✅). **`readOnly` prop**: no save button, shows "Visualizzazione viaggio salvato" |
 | `SavedTripsV2.tsx` | v2 saved trips list with step completion badges (📋 Itinerario ✓/○, 🏨 Alloggi ✓/○, 💰 Budget ✓/○), "Completo" badge, favorites sorted first, delete with confirm/cancel. `onLoad` restores full v2 flow state |
 
@@ -247,7 +250,7 @@ GLM-5.1 fabricates fake deep links that look real but 404 (e.g., `booking.com/ho
 
 - **HotelCard**: Uses `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` with per-stop dates — never uses AI `bookingUrl` directly
 - **RestaurantCard**: Uses Google Search `${name} ${city} tripadvisor` (TripAdvisor Search blocks direct linking)
-- **FlightCard**: For flights, only homepage-level whitelisted URLs (airline.com). For "Auto privata" car routes, Google Maps directions link
+- **FlightCard**: For flights, only homepage-level whitelisted URLs (airline.com). For car routes, uses `flight.bookingUrl` directly (correct per-segment Google Maps URL from `generateCarSegments()`)
 - **Step1 activities**: "Scopri di più" link on tourist activities (not on pernottamento/relax), fallback to Google Search via `getGoogleSearchUrl()`
 - **Only AI search URLs are trusted**: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`
 - **`getGoogleSearchUrl(query)`**: Added to `urlSafety.ts` as a safe fallback URL generator
@@ -256,13 +259,16 @@ GLM-5.1 fabricates fake deep links that look real but 404 (e.g., `booking.com/ho
 
 Booking.com search URLs use check-in/checkout dates calculated **per stop** from the itinerary, not whole-trip dates. `stopDates` is computed via `useMemo` in `Step2AccommodationView`, accumulating nights from `startDate`. Each stop gets its own `(checkIn, checkOut)` pair based on how many nights the itinerary spends there.
 
-### Car Route Dedicated Layout (FlightCard)
+### Car Route — Programmatic Generation (FlightCard)
 
-When `flightPreference = "Auto privata"`, FlightCard renders a dedicated layout instead of flight info:
-- Shows: **distance** (km), **travel time**, **fuel+tolls cost** — no flight times, no "Prenota" button
-- Link: "Vedi su Google Maps" with route directions URL
+When `flightPreference` includes "auto" (e.g. "Auto privata"), car segments are **generated programmatically** — no AI call needed:
+- `generateCarSegments()`: creates one segment per route leg (departure→stop1, stop1→stop2, ..., lastStop→departure)
+- `estimateRoadKm()`: 80+ European route lookup table with real distances, fallback 400km for unknown routes
+- **2 options per segment**: Autostrada (€0.15/km fuel + €0.07/km tolls) and Senza pedaggi (fuel only, +30% time)
+- Each segment has a correct Google Maps URL (`google.com/maps/dir/CityA/CityB`) stored in `bookingUrl`
+- FlightCard renders dedicated layout: distance (km), travel time, fuel+tolls cost — no flight times, no "Prenota"
+- FlightCard uses `isCarRoute` check via `includes()` (not `===`) and `flight.bookingUrl` directly for Google Maps link
 - Schema: `distance: z.string().nullish()` added to `FlightSegmentSchema` in `step2-contract.ts`
-- Step 2 flight search prompt includes detailed car route instructions when auto is selected
 
 ### Country Lookup (`getDestinationCountries`)
 
@@ -288,14 +294,14 @@ src/
 │   └── step3-contract.ts            # BudgetCalculation schema (with nullish)
 ├── services/
 │   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + stopover in prompt + auto-retry
-│   ├── step2Service.ts              # searchAccommodationsAndTransport() (per-stop + extractStops + markdown stripping + cleanEmptyStrings + safeParse + system message)
-│   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, smart transport cost)
+│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled + generateCarSegments() + estimateRoadKm() + extractStops + markdown stripping + cleanEmptyStrings + safeParse + system message)
+│   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, 5 categories: Trasporti/Alloggi/Attività/Cibo/Extra e Imprevisti, category-specific tables)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
 ├── components/
 │   ├── StepIndicator.tsx            # 3-step visual stepper
 │   ├── Step1ItineraryView.tsx       # Step 1: itinerary + TravelMap + Unsplash images + sources + confirm/modify
-│   ├── Step2AccommodationView.tsx   # Step 2: timeline + selectable hotels/flights + RunningTotalBar
+│   ├── Step2AccommodationView.tsx   # Step 2: timeline + selectable hotels/flights/car + sticky TravelMap (2-col) + RunningTotalBar
 │   ├── Step3BudgetView.tsx          # Step 3: budget breakdown + save feedback
 │   ├── AuthForm.tsx                 # Login/Signup UI
 │   ├── ProfileForm.tsx              # Traveler profile
@@ -334,15 +340,15 @@ Never use `supabase.from().insert()` or `.select()` directly for saves — the J
 GLM-5.1 generates fake deep links (`booking.com/hotel/it/fake.html`, `tripadvisor.it/Restaurant_Review-fake`) that 404. The frontend generates search URLs from real data instead:
 - HotelCard → `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` with per-stop dates
 - RestaurantCard → Google Search `${name} ${city} tripadvisor`
-- FlightCard flights → homepage-level whitelisted URLs only; car routes → Google Maps link
+- FlightCard flights → homepage-level whitelisted URLs only; car routes → `flight.bookingUrl` directly (Google Maps from `generateCarSegments()`)
 - Step1 activities → "Scopri di più" on tourist activities, `getGoogleSearchUrl()` fallback
 - Only search URLs are trusted: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`
 
 ### Per-Stop Booking Dates
 Booking.com URLs use per-stop check-in/checkout dates (computed via `useMemo` in `Step2AccommodationView`, accumulating nights from `startDate`), not whole-trip dates.
 
-### Car Route FlightCard Layout
-When `flightPreference = "Auto privata"`, FlightCard shows distance (km), travel time, fuel+tolls cost — no flight times, no "Prenota" button. Link: "Vedi su Google Maps" with directions URL. `distance` field added to `FlightSegmentSchema`.
+### Car Route — Programmatic Generation
+When `flightPreference` includes "auto" (e.g. "Auto privata"), `generateCarSegments()` creates segments programmatically — no AI call. `estimateRoadKm()` has 80+ European route lookup table, fallback 400km. 2 options per segment: Autostrada (€0.15/km fuel + €0.07/km tolls) and Senza pedaggi (fuel only, +30% time). FlightCard uses `isCarRoute` via `includes()` and `flight.bookingUrl` directly for Google Maps. `distance` field on `FlightSegmentSchema`.
 
 ### Step Navigation — Read-Only Mode
 Steps 1 and 2 are always visible when navigating back from Step 3 (read-only mode). Components always render, receiving `readOnly={step1Confirmed || viewingSavedTrip}`. "Itinerario confermato!" / "Alloggi confermati!" placeholders only show when next step data hasn't loaded yet.
@@ -357,9 +363,11 @@ Steps 1 and 2 are always visible when navigating back from Step 3 (read-only mod
 - The Step 1 prompt enforces "REGOLE PER LA DISTRIBUZIONE DELLE TAPPE": max N/2 stops for N days, 2-3 nights in major cities, base + day-trip pattern, `location` field must match overnight city.
 - The compact prompt includes: "TAPPE: MAX N/2 tappe per viaggio di N giorni. Città principali: 2-3 notti."
 
-### Transport Cost Pitfall
-- `estimatedLocalCost` from GLM-5.1 is ambiguous — could be per-day or total. Step 3 parses it intelligently: "al giorno"/"per day" → multiply by days×people; "totale"/"total" → use as-is. Ambiguous large numbers (>€200) treated as total.
-- Cap: local transport never exceeds 30% of total budget. Per-person per-day cap: €200.
+### Budget Step 3 Categories
+- **5 categories**: Trasporti (covers flights, trains, car, ferry), Alloggi, Attività, Cibo, Extra e Imprevisti
+- Removed "Trasporti locali" — fuoriviante, not always applicable. No more `estimatedLocalCost` parsing or transport cap logic.
+- Category-specific table layouts: Trasporti (Data|Descrizione|Costo), Alloggi (Data arrivo|Luogo|Alloggio|Notti|Costo), Attività (Data|Luogo|Descrizione|Durata|Costo)
+- Extended item fields in step3-contract: `date`, `location`, `description`, `duration`, `hotelName`, `nights`
 
 ### Zod Pitfalls with AI APIs
 - **`.optional()` vs `.nullish()`**: GLM-5.1 returns `null` for missing fields, not `undefined`. Use `.nullish()` for all `z.string()` and `z.number()` fields. Keep `.optional()` only for `z.array()` and `z.object()`.

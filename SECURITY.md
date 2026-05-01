@@ -76,7 +76,7 @@ Vagabond-ollama implements a 3-layer URL protection system to prevent users from
 | Restaurant | Google Search `${name} ${city} tripadvisor` (TripAdvisor Search blocks direct linking) |
 | Attraction | Google Search via `getGoogleSearchUrl()` |
 | Flight | Homepage-level whitelisted airline URLs only |
-| Car route ("Auto privata") | Google Maps directions link |
+| Car route ("Auto privata") | Generated programmatically by `generateCarSegments()` — Google Maps `google.com/maps/dir/CityA/CityB` per segment |
 | Travel Blog | Removed entirely |
 | Images from non-whitelisted CDNs | Removed (falls back to picsum.photos) |
 
@@ -97,5 +97,5 @@ Vagabond-ollama implements a 3-layer URL protection system to prevent users from
 - `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` generates Booking.com search URLs with per-stop check-in/checkout
 - `getGoogleSearchUrl(query)` generates safe Google Search URLs (fallback for activities, restaurants)
 - Restaurant replacements use Google Search (`${name} ${city} tripadvisor`) since TripAdvisor blocks direct search links
-- Car route ("Auto privata") replacements use Google Maps directions URLs
+- Car route ("Auto privata") segments are generated programmatically by `generateCarSegments()` with correct Google Maps URLs — no AI deep links involved
 - All replacements are functional search URLs, not dead links

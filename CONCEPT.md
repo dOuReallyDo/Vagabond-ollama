@@ -26,7 +26,8 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 - **Distribuzione tappe intelligente**: Max N/2 tappe per viaggio di N giorni, città principali 2-3 notti
 - **Selezione utente**: In Step 2 l'utente sceglie alloggio e trasporto per ogni tappa — solo i selezionati vanno nel budget
 - **Timeline visiva**: Le tappe sono visibili in sequenza (es. "Milano → Lisbona (3gg) → Porto → Milano")
-- **Mappa interattiva**: Leaflet/OpenStreetMap con marker mostrata nell'itinerario (Step 1)
+- **Mappa interattiva**: Leaflet/OpenStreetMap con marker mostrata nell'itinerario (Step 1) e sticky in Step 2 (2-col layout, hotel + attrazioni)
+- **Mappa sticky Step 2**: TravelMap fissa a destra (lg+), mostra marker hotel da alloggi + attrazioni itinerario, etichette tappe sotto la mappa
 
 ## I Miei Viaggi — Visualizzazione Step-by-Step
 - **SavedTripsV2**: ogni viaggio salvato mostra badge di completamento per step (📋 Itinerario ✓/○, 🏨 Alloggi ✓/○, 💰 Budget ✓/○)
@@ -41,16 +42,18 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 
 ## Design Philosophy
 - **Minimalismo**: L'interfaccia deve sparire per lasciare spazio alle immagini e alle informazioni.
-- **Fiducia**: Ogni link deve funzionare (URL Safety 3-layer + v2 sanitizers per flusso 3-step), ogni costo deve essere realistico (cap trasporti al 30% del budget). URL AI-generati sono sanificati sia nel flusso legacy (`sanitizeTravelPlanAsync()`) che nel flusso v2 (`sanitizeStep1Urls()` + `sanitizeStep2Urls()`).
-- **Mai fidarsi dei deep link AI**: GLM-5.1 fabbrica link finti (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) che portano a 404. Il frontend genera SEMPRE search URL reali dai dati strutturati — HotelCard usa `getBookingSearchUrlWithDates` con date per-tappa, RestaurantCard usa Google Search, FlightCard per auto usa Google Maps. Solo le search URL (non i deep link) sono trusted.
+- **Fiducia**: Ogni link deve funzionare (URL Safety 3-layer + v2 sanitizers per flusso 3-step), ogni costo deve essere realistico. Budget con 5 categorie (Trasporti, Alloggi, Attività, Cibo, Extra e Imprevisti) — "Trasporti locali" rimosso (fuoriviante). URL AI-generati sono sanificati sia nel flusso legacy (`sanitizeTravelPlanAsync()`) che nel flusso v2 (`sanitizeStep1Urls()` + `sanitizeStep2Urls()`).
+- **Mai fidarsi dei deep link AI**: GLM-5.1 fabbrica link finti (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) che portano a 404. Il frontend genera SEMPRE search URL reali dai dati strutturati — HotelCard usa `getBookingSearchUrlWithDates` con date per-tappa, RestaurantCard usa Google Search, FlightCard per auto usa `flight.bookingUrl` direttamente (URL Google Maps generato programmaticamente). Solo le search URL (non i deep link) sono trusted.
 - **Progressività**: L'utente conferma e seleziona prima di procedere — niente sorprese, niente costi nascosti.
 - **Resilienza**: Se l'AI tronca la risposta, il sistema ritenta automaticamente con un prompt più conciso.
 
 ## Car Route UX — "Auto privata"
-Quando l'utente sceglie "Auto privata" come trasporto, il FlightCard non mostra info volo ma un layout dedicato:
-- **Distanza** in km, **tempo di viaggio**, **costo carburante+pedaggi**
-- Link "Vedi su Google Maps" con URL direzioni per il tragitto
-- Niente orari volo, niente "Prenota" — è un percorso stradale, non un volo
+Quando l'utente sceglie "Auto privata" come trasporto, i segmenti auto sono **generati programmaticamente** (nessuna chiamata AI):
+- `generateCarSegments()` crea un segmento per tratta (partenza→tappa1→tappa2→...→ritorno)
+- `estimateRoadKm()`: tabella 80+ rotte europee, fallback 400km
+- **2 opzioni per segmento**: Autostrada (€0.15/km carburante + €0.07/km pedaggi) e Senza pedaggi (solo carburante, +30% tempo)
+- FlightCard usa `flight.bookingUrl` direttamente (URL Google Maps corretto per segmento)
+- Niente orari volo, niente "Prenota" — è un percorso stradale
 
 ## Per-Stop Booking Dates
 Ogni tappa dell'itinerario ha le sue date di check-in/check-out per Booking.com, calcolate accumulando le notti dalla data di partenza del viaggio. Questo dà link di ricerca più pertinenti rispetto a usare le date dell'intero viaggio.
