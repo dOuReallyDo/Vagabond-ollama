@@ -203,10 +203,11 @@ DATE: ${inputs.startDate} → ${inputs.endDate}
 ISTRUZIONI:
 1. Usa la ricerca web per trovare prezzi REALI e aggiornati per alloggi a ${stopName}.
 2. Proponi 2-3 opzioni di alloggio (hotel, B&B, ostello, appartamento) con prezzi per notte trovati online.
-3. Proponi 2 opzioni di ristorante locale con fascia di prezzo.
+3. Proponi 2 opzioni di ristorante locale con fascia di prezzo. Per OGNI ristorante includi un link "sourceUrl" a tripadvisor.it.
 4. Le descrizioni DEVONO essere brevi ma informative: 1-2 frasi per reviewSummary.
 5. Per "estimatedPricePerNight" indica il costo TOTALE della camera per TUTTE le ${totalPeople} persone, NON per persona.
 6. Per "bookingUrl" usa il link a booking.com. Per "officialUrl" usa il sito ufficiale dell'hotel. Includi ENTRAMBI se possibile.
+7. Per i ristoranti, il campo "sourceUrl" è OBBLIGATORIO: usa un link a tripadvisor.it per ogni ristorante.
 
 🔗 SICUREZZA DEI LINK:
 - USA SOLO link a siti noti: booking.com, tripadvisor.it, airbnb.com, hotels.com, ecc.
@@ -245,6 +246,7 @@ Struttura JSON richiesta:
         "cuisineType": "Cucina locale",
         "rating": 4.5,
         "reviewSummary": "Breve recensione",
+        "sourceUrl": "https://www.tripadvisor.it/Restaurant_Review-...",
         "priceRange": "€€",
         "address": "Indirizzo",
         "mustTry": "Piatto tipico"
@@ -306,7 +308,7 @@ async function searchStopAccommodationsRetry(
   const totalPeople = inputs.people.adults + inputs.people.children.length;
   const accommodationType = inputs.accommodationType || "Hotel";
 
-  const prompt = `Cerca 2 alloggi e 1 ristorante a ${stopName} per ${nights} notti (${totalPeople} persone, tipo: ${accommodationType}). Prezzi reali trovati online. Descrizioni brevi ma informative. SOLO JSON:
+  const prompt = `Cerca 2 alloggi e 1 ristorante a ${stopName} per ${nights} notti (${totalPeople} persone, tipo: ${accommodationType}). Prezzi reali trovati online. Descrizioni brevi ma informative. Per i ristoranti includi SEMPRE sourceUrl a tripadvisor.it. SOLO JSON:
 
 {
   "accommodations": {
@@ -335,6 +337,7 @@ async function searchStopAccommodationsRetry(
         "cuisineType": "Locale",
         "rating": 4.0,
         "reviewSummary": "Buon cibo",
+        "sourceUrl": "https://www.tripadvisor.it/Restaurant_Review-...",
         "priceRange": "€€",
         "mustTry": "Piatto tipico"
       }

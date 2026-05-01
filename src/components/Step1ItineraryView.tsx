@@ -529,6 +529,17 @@ export default function Step1ItineraryView({
                                       <p className="text-xs text-amber-800 leading-relaxed">{act.tips}</p>
                                     </div>
                                   )}
+
+                                  {act.sourceUrl && (
+                                    <a
+                                      href={act.sourceUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-accent hover:underline"
+                                    >
+                                      <ExternalLink className="w-3 h-3" /> Scopri di più
+                                    </a>
+                                  )}
                                 </div>
                               );
                             })}

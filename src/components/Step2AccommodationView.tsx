@@ -276,6 +276,17 @@ function RestaurantCard({ restaurant }: { restaurant: RestaurantStop['options'][
         <span className="text-xs text-brand-ink/40">Fascia di prezzo</span>
         <span className="font-bold">{restaurant.priceRange}</span>
       </div>
+
+      {restaurant.sourceUrl && (
+        <a
+          href={restaurant.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-accent hover:underline"
+        >
+          <ExternalLink className="w-3 h-3" /> Vedi su TripAdvisor
+        </a>
+      )}
     </motion.div>
   );
 }
