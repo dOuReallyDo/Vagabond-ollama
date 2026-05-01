@@ -175,6 +175,119 @@ function extractStops(itinerary: ItineraryDraft): Stop[] {
   return stops;
 }
 
+// ─── Generate car route segments programmatically (no AI needed) ──────────
+
+/**
+ * Estimate approximate road distance (km) between two European cities.
+ * Uses haversine for straight-line, then applies a 1.3x road factor.
+ * Falls back to 300km for unknown pairs.
+ */
+function estimateRoadKm(cityA: string, cityB: string): number {
+  const europeanDistances: Record<string, number> = {
+    // Common Italy routes
+    'milano-roma': 570, 'roma-napoli': 230, 'milano-torino': 140, 'milano-venezia': 270,
+    'roma-firenze': 280, 'firenze-bologna': 100, 'bologna-venezia': 160,
+    'milano-firenze': 300, 'roma-bari': 380,
+    // Portugal
+    'lisbona-porto': 310, 'porto-lisbona': 310,
+    'lisbona-algarve': 280, 'algarve-lisbona': 280,
+    // Spain
+    'madrid-barcellona': 620, 'barcellona-valencia': 350,
+    'madrid-siviglia': 530, 'siviglia-granada': 250,
+    // France
+    'parigi-lione': 460, 'lione-marsiglia': 310, 'parigi-nizza': 930,
+    'parigi-bordeaux': 590,
+    // UK
+    'londra-manchester': 340, 'londra-edinburgo': 650,
+    // Germany
+    'berlino-monaco': 590, 'monaco-amburgo': 780, 'francoforte-berlino': 550,
+    // Cross-border common
+    'milano-parigi': 850, 'roma-parigi': 1430, 'milano-lione': 450,
+    'barcellona-marsiglia': 500, 'lione-barcellona': 670,
+    'lisbona-madrid': 620, 'madrid-lisbona': 620,
+    'milano-vienna': 830, 'roma-vienna': 1120,
+  };
+
+  const normalizeCity = (c: string) => c.toLowerCase().split(',')[0].trim()
+    .replace(/^(città di |city of |ville de )/i, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // strip accents
+
+  const a = normalizeCity(cityA);
+  const b = normalizeCity(cityB);
+  const key1 = `${a}-${b}`;
+  const key2 = `${b}-${a}`;
+
+  if (europeanDistances[key1]) return europeanDistances[key1];
+  if (europeanDistances[key2]) return europeanDistances[key2];
+
+  // Fallback: estimate by rough city "region" — default 400km
+  return 400;
+}
+
+function generateCarSegments(
+  inputs: TravelInputs,
+  stops: Stop[]
+): FlightSegment[] {
+  const departureCity = inputs.departureCity || 'Casa';
+  const totalPeople = inputs.people.adults + inputs.people.children.length;
+  const fuelCostPerKm = 0.15;  // €0.15/km average European fuel
+  const tollCostPerKm = 0.07;  // €0.07/km average European tolls
+  const avgSpeedKmh = 80;      // average speed including stops
+
+  const segments: FlightSegment[] = [];
+
+  // Build ordered list of cities in the trip
+  const cityList = [departureCity, ...stops.map(s => s.stopName), departureCity];
+
+  // Create one segment per consecutive pair
+  for (let i = 0; i < cityList.length - 1; i++) {
+    const fromCity = cityList[i];
+    const toCity = cityList[i + 1];
+    const distKm = estimateRoadKm(fromCity, toCity);
+    const fuelCost = Math.round(distKm * fuelCostPerKm);
+    const tollCost = Math.round(distKm * tollCostPerKm);
+    const totalCost = fuelCost + tollCost;
+    const hours = Math.round(distKm / avgSpeedKmh);
+    const minutes = Math.round((distKm / avgSpeedKmh - hours) * 60);
+    const durationStr = hours > 0 ? `${hours}h${minutes > 0 ? ` ${minutes}min` : ''}` : `${minutes}min`;
+    const googleMapsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(fromCity)}/${encodeURIComponent(toCity)}`;
+
+    // Generate 2 options: autostrada (tolls) and strade statali (no tolls, slower)
+    segments.push({
+      segmentName: `Auto: ${fromCity} → ${toCity}`,
+      selectedIndex: 0,
+      options: [
+        {
+          airline: 'Auto privata',
+          route: `${fromCity} → ${toCity}`,
+          estimatedPrice: totalCost,
+          date: inputs.startDate,
+          departureTime: null,
+          arrivalTime: null,
+          duration: durationStr,
+          distance: `${distKm.toLocaleString('it-IT')} km`,
+          bookingUrl: googleMapsUrl,
+          verified: false,
+        },
+        {
+          airline: 'Auto privata (senza pedaggi)',
+          route: `${fromCity} → ${toCity}`,
+          estimatedPrice: fuelCost, // fuel only, no tolls
+          date: inputs.startDate,
+          departureTime: null,
+          arrivalTime: null,
+          duration: `${hours > 0 ? hours + 1 : 1}h${minutes > 0 ? ` ${minutes}min` : ''}`, // ~30% slower without highways
+          distance: `${Math.round(distKm * 1.1).toLocaleString('it-IT')} km`, // slightly longer route
+          bookingUrl: googleMapsUrl,
+          verified: false,
+        },
+      ],
+    });
+  }
+
+  return segments;
+}
+
 // ─── Per-stop accommodation + restaurant search ─────────────────────────────
 
 interface StopSearchResult {
@@ -557,6 +670,15 @@ export const searchAccommodationsAndTransport = async (
     const bestRestaurants: RestaurantStop[] = [];
     const warnings: string[] = [];
 
+    // If car route, generate segments programmatically (no AI call needed, faster + reliable)
+    const isCarRoute = (inputs.flightPreference || '').toLowerCase().includes('auto');
+    let carSegments: FlightSegment[] | null = null;
+
+    if (isCarRoute && stops.length > 0) {
+      onProgress?.("Calcolo tratte auto...", 65);
+      carSegments = generateCarSegments(inputs, stops);
+    }
+
     // Build all stop search promises
     const stopPromises = stops.map((stop, i) => {
       const progressPercent = 15 + Math.round((i / (totalStops + 1)) * 50);
@@ -581,13 +703,19 @@ export const searchAccommodationsAndTransport = async (
       });
     });
 
-    // Also start flight search concurrently
-    onProgress?.("Ricerca voli e trasporti in parallelo...", 65);
-    const flightPromise = searchFlights(inputs, apiKey, stops).catch(flightError => {
-      console.error("Step 2: Flight search failed, continuing without flights.", flightError);
-      warnings.push("Impossibile trovare opzioni di volo per la tratta selezionata");
-      return [] as FlightSegment[];
-    });
+    // Start flight search concurrently (only if NOT car route — car is pure JS)
+    let flightPromise: Promise<FlightSegment[]>;
+    if (carSegments) {
+      // Car segments already generated, no AI call needed
+      flightPromise = Promise.resolve(carSegments);
+    } else {
+      onProgress?.("Ricerca voli e trasporti in parallelo...", 65);
+      flightPromise = searchFlights(inputs, apiKey, stops).catch(flightError => {
+        console.error("Step 2: Flight search failed, continuing without flights.", flightError);
+        warnings.push("Impossibile trovare opzioni di volo per la tratta selezionata");
+        return [] as FlightSegment[];
+      });
+    }
 
     // Wait for all in parallel
     onProgress?.("Attendendo risultati...", 70);

@@ -343,33 +343,18 @@ function FlightCard({
   numPeople,
   isSelected,
   onSelect,
-  allStopNames,
 }: {
   flight: FlightSegment['options'][0];
   numPeople: number;
   isSelected: boolean;
   onSelect: () => void;
-  allStopNames?: string[]; // itinerary stop names for car route Google Maps
 }) {
-  const isCarRoute = flight.airline?.toLowerCase() === 'auto privata';
+  const isCarRoute = flight.airline?.toLowerCase().includes('auto privata');
   const routeParts = flight.route?.split(/\s*(?:->|→)\s*/) || [];
   const totalPrice = flight.estimatedPrice * numPeople;
 
-  // Build Google Maps URL for car: use real stop names, not AI route
-  const carMapsUrl = useMemo(() => {
-    if (!isCarRoute || !allStopNames || allStopNames.length === 0) {
-      // Fallback: parse route
-      if (isCarRoute && routeParts.length >= 2) {
-        return `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`;
-      }
-      return null;
-    }
-    const deptCity = allStopNames[0].split(',')[0].trim();
-    // Full route: departure → stop1 → stop2 → ... → departure
-    const waypoints = allStopNames.map(s => encodeURIComponent(s.split(',')[0].trim()));
-    const fullRoute = [encodeURIComponent(deptCity), ...waypoints, encodeURIComponent(deptCity)].join('/');
-    return `https://www.google.com/maps/dir/${fullRoute}`;
-  }, [isCarRoute, allStopNames, routeParts]);
+  // For car routes: use the bookingUrl which already has the correct Google Maps link per segment
+  // (generated programmatically by generateCarSegments from real itinerary stops)
 
   const effectiveFlightUrl = (() => {
     // Only trust AI airline URL if it's clearly the homepage (no deep paths)
@@ -508,7 +493,7 @@ function FlightCard({
       {/* Link: Google Maps for car, airline site for flights */}
       {isCarRoute ? (
         <a
-          href={carMapsUrl || `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`}
+          href={flight.bookingUrl || `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
@@ -617,15 +602,6 @@ export default function Step2AccommodationView({
   };
 
   const numPeople = inputs.people.adults + inputs.people.children.length;
-
-  // Build stop names list for Google Maps car routes: departure + all accommodation stops
-  const allStopNames = useMemo(() => {
-    const names = [inputs.departureCity || ''];
-    for (const stop of data.accommodations) {
-      names.push(stop.stopName);
-    }
-    return names;
-  }, [inputs.departureCity, data.accommodations]);
 
   // Build mapPoints from accommodations for the sticky map
   const mapPoints = useMemo(() => {
@@ -812,7 +788,6 @@ export default function Step2AccommodationView({
                         numPeople={numPeople}
                         isSelected={(segment.selectedIndex ?? 0) === i}
                         onSelect={readOnly ? () => {} : () => onFlightSelect(segmentIdx, i)}
-                        allStopNames={allStopNames}
                       />
                     ))}
                   </div>
