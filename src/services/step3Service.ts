@@ -21,35 +21,68 @@ export function calculateBudget(
   ) + 1;
 
   const totalPeople = inputs.people.adults + inputs.people.children.length;
+  const startDate = new Date(inputs.startDate);
 
-  // ─── 1. Flights ───
-  // Use selectedIndex per segment, fallback to 0
-  const flightItems = (step2.flights ?? []).map((segment) => {
+  // ─── 1. Trasporti (flights/trains/car) ───
+  const transportItems = (step2.flights ?? []).map((segment, i) => {
     const idx = segment.selectedIndex ?? 0;
     const selectedOption = segment.options[idx];
     const pricePerPerson = selectedOption?.estimatedPrice ?? 0;
+    const total = pricePerPerson * totalPeople;
+
+    // Get date for this segment: first segment = departure date, subsequent = based on stop accumulation
+    let segmentDate = inputs.startDate;
+    // For car routes, date can be inferred from stop position
+    if (i > 0 && step2.accommodations.length > 0) {
+      let dayOffset = 0;
+      for (let j = 0; j < Math.min(i, step2.accommodations.length); j++) {
+        dayOffset += step2.accommodations[j].nights ?? 1;
+      }
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + dayOffset);
+      segmentDate = d.toISOString().split('T')[0];
+    }
+    // Last segment (return) date = end date
+    if (i === (step2.flights?.length ?? 0) - 1) {
+      segmentDate = inputs.endDate;
+    }
+
     return {
       segment,
       pricePerPerson,
-      total: pricePerPerson * totalPeople,
+      total,
+      date: segmentDate,
+      description: segment.segmentName ?? `Tratta ${i + 1}`,
+      optionLabel: selectedOption?.airline ?? '',
     };
   });
 
-  const flightsTotal = flightItems.reduce((sum, f) => sum + f.total, 0);
+  const transportTotal = transportItems.reduce((sum, f) => sum + f.total, 0);
 
   // ─── 2. Accommodation ───
-  // Use selectedIndex per stop, fallback to 0
-  const accommodationItems = step2.accommodations.map((stop) => {
+  const accommodationItems = step2.accommodations.map((stop, i) => {
     const idx = stop.selectedIndex ?? 0;
     const selectedOption = stop.options[idx];
     const pricePerNight = selectedOption?.estimatedPricePerNight ?? 0;
     const nights = stop.nights ?? 1;
     const total = pricePerNight * nights;
+
+    // Calculate arrival date
+    let dayOffset = 0;
+    for (let j = 0; j < i; j++) {
+      dayOffset += step2.accommodations[j].nights ?? 1;
+    }
+    const arrivalDate = new Date(startDate);
+    arrivalDate.setDate(arrivalDate.getDate() + dayOffset);
+    const arrivalDateStr = arrivalDate.toISOString().split('T')[0];
+
     return {
       stopName: stop.stopName,
+      hotelName: selectedOption?.name ?? stop.stopName,
       pricePerNight,
       nights,
       total,
+      arrivalDate: arrivalDateStr,
     };
   });
 
@@ -59,25 +92,38 @@ export function calculateBudget(
   );
 
   // ─── 3. Activities ───
-  // Sum all costEstimate from itinerary activities
-  const activityItems: { name: string; cost: number; notes?: string }[] = [];
+  const activityItems: {
+    name: string;
+    cost: number;
+    date: string;
+    location: string;
+    description: string;
+    duration: string;
+  }[] = [];
   let activitiesTotal = 0;
 
   for (const day of step1.itinerary) {
+    // Calculate date for this day
+    const dayDate = new Date(startDate);
+    dayDate.setDate(dayDate.getDate() + (day.day - 1));
+    const dateStr = dayDate.toISOString().split('T')[0];
+
     for (const activity of day.activities) {
-      if (activity.costEstimate != null) {
+      if (activity.costEstimate != null && activity.costEstimate > 0) {
         activitiesTotal += activity.costEstimate;
         activityItems.push({
-          name: activity.name ?? activity.description.slice(0, 40),
+          name: activity.name ?? 'Attività',
           cost: activity.costEstimate,
-          notes: `Giorno ${day.day}`,
+          date: dateStr,
+          location: activity.location ?? day.title ?? '',
+          description: activity.description?.slice(0, 80) ?? activity.name ?? '',
+          duration: activity.duration ?? '',
         });
       }
     }
   }
 
   // ─── 4. Food ───
-  // Determine daily rate based on input budget tier
   const budget = inputs.budget;
   let foodDailyRate: number;
   if (budget < 2000) {
@@ -94,84 +140,38 @@ export function calculateBudget(
     inputs.people.children.length * (foodDailyRate * 0.5) * totalDays;
   const foodTotal = adultFoodCost + childFoodCost;
 
-  // ─── 5. Transport ───
-  let transportTotal: number;
-  let transportNotes: string;
-  const MAX_DAILY_TRANSPORT_PER_PERSON = 200;
-
-  if (step1.transportInfo?.estimatedLocalCost) {
-    const costStr = step1.transportInfo.estimatedLocalCost.toLowerCase();
-    const parsed = parseFloat(
-      step1.transportInfo.estimatedLocalCost.replace(/[^\d.,]/g, '').replace(',', '.')
-    );
-    const dailyCost = isNaN(parsed) ? 0 : parsed;
-
-    if (costStr.includes('giorno') || costStr.includes('day') || costStr.includes('/g') || costStr.includes('per day') || costStr.includes('daily')) {
-      // AI said "per day" — multiply by days, but cap per person
-      const cappedPerPerson = Math.min(dailyCost, MAX_DAILY_TRANSPORT_PER_PERSON);
-      transportTotal = cappedPerPerson * totalPeople * totalDays;
-      transportNotes = `€${cappedPerPerson}/persona/giorno × ${totalDays} giorni`;
-    } else if (costStr.includes('totale') || costStr.includes('total') || costStr.includes('complessivo')) {
-      // AI said "total" — use as-is
-      transportTotal = dailyCost;
-      transportNotes = `Costo totale trasporti locali: €${dailyCost}`;
-    } else {
-      // Ambiguous — likely total (GLM-5.1 often gives total, not per-day)
-      // But if it looks like per-day (small number) treat as per-day, otherwise as total
-      if (dailyCost <= MAX_DAILY_TRANSPORT_PER_PERSON) {
-        // Small number — probably per-day
-        transportTotal = dailyCost * totalPeople * totalDays;
-        transportNotes = `€${dailyCost}/persona/giorno × ${totalDays} giorni`;
-      } else {
-        // Large number — probably total for the trip, don't multiply
-        transportTotal = dailyCost;
-        transportNotes = `Costo totale trasporti: €${dailyCost}`;
-      }
-    }
-  } else {
-    transportTotal = 20 * totalPeople * totalDays;
-    transportNotes = `Stima: €20/persona/giorno`;
-  }
-
-  // Safety cap: local transport should never exceed 30% of total budget
-  const transportCap = Math.round(budget * 0.3);
-  if (transportTotal > transportCap) {
-    transportNotes = `${transportNotes} (ridotto da €${transportTotal} al 30% del budget)`;
-    transportTotal = transportCap;
-  }
-
-  // ─── 6. Misc (10% buffer) ───
-  const subtotal =
-    flightsTotal + accommodationTotal + activitiesTotal + foodTotal + transportTotal;
+  // ─── 5. Extra/Imprevisti (10% buffer) ───
+  const subtotal = transportTotal + accommodationTotal + activitiesTotal + foodTotal;
   const misc = Math.round(subtotal * 0.1);
 
-  // ─── 7. Total ───
-  const totalEstimated =
-    flightsTotal + accommodationTotal + activitiesTotal + foodTotal + transportTotal + misc;
+  // ─── 6. Total ───
+  const totalEstimated = transportTotal + accommodationTotal + activitiesTotal + foodTotal + misc;
 
-  // ─── 8. Per person per day ───
+  // ─── 7. Per person per day ───
   const perPersonPerDay =
     totalPeople > 0 && totalDays > 0
       ? Math.round((totalEstimated / totalPeople / totalDays) * 100) / 100
       : 0;
 
-  // ─── 9. Budget warning ───
+  // ─── 8. Budget warning ───
   let budgetWarning: string | null = null;
   if (totalEstimated > budget) {
     const diff = totalEstimated - budget;
     budgetWarning = `Budget stimato €${totalEstimated} supera il budget di €${budget} di €${diff}`;
   }
 
-  // ─── 10. Cost table ───
+  // ─── 9. Cost table ───
   const costTable: BudgetCalculation['costTable'] = [
     {
-      category: 'Voli',
-      items: flightItems.map((f, i) => ({
-        name: f.segment.segmentName ?? `Tratta ${i + 1}`,
+      category: 'Trasporti',
+      items: transportItems.map((f) => ({
+        name: f.description,
         cost: f.total,
         notes: `${f.pricePerPerson}€/persona × ${totalPeople} persone`,
+        date: f.date,
+        description: f.optionLabel,
       })),
-      subtotal: flightsTotal,
+      subtotal: transportTotal,
     },
     {
       category: 'Alloggi',
@@ -179,12 +179,23 @@ export function calculateBudget(
         name: a.stopName,
         cost: a.total,
         notes: `${a.pricePerNight}€/notte × ${a.nights} notti`,
+        date: a.arrivalDate,
+        location: a.stopName,
+        hotelName: a.hotelName,
+        nights: a.nights,
       })),
       subtotal: accommodationTotal,
     },
     {
       category: 'Attività',
-      items: activityItems,
+      items: activityItems.map((a) => ({
+        name: a.name,
+        cost: a.cost,
+        date: a.date,
+        location: a.location,
+        description: a.description,
+        duration: a.duration,
+      })),
       subtotal: activitiesTotal,
     },
     {
@@ -208,18 +219,7 @@ export function calculateBudget(
       subtotal: foodTotal,
     },
     {
-      category: 'Trasporti locali',
-      items: [
-        {
-          name: 'Trasporti',
-          cost: transportTotal,
-          notes: transportNotes,
-        },
-      ],
-      subtotal: transportTotal,
-    },
-    {
-      category: 'Extra',
+      category: 'Extra e Imprevisti',
       items: [
         {
           name: 'Buffer imprevisti (10%)',
@@ -234,12 +234,11 @@ export function calculateBudget(
   // ─── Build result ───
   const result: BudgetCalculation = {
     budgetBreakdown: {
-      flights: flightsTotal,
+      flights: transportTotal,
       accommodation: accommodationTotal,
       activities: activitiesTotal,
       food: foodTotal,
       totalEstimated,
-      transport: transportTotal,
       misc,
       perPersonPerDay,
     },

@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Euro, Plane, Hotel, MapPin, Utensils, Train, AlertTriangle,
+  Euro, Plane, Hotel, MapPin, Utensils, AlertTriangle,
   CheckCircle2, ChevronDown, ArrowLeft, Download, ShieldCheck, Loader2,
 } from 'lucide-react';
 import { cn } from '../App';
@@ -38,12 +38,11 @@ function formatCurrency(amount: number): string {
 // ─── CATEGORY CONFIG ─────────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  { key: 'flights', label: 'Voli', icon: Plane, color: 'bg-blue-50 text-blue-600' },
+  { key: 'flights', label: 'Trasporti', icon: Plane, color: 'bg-blue-50 text-blue-600' },
   { key: 'accommodation', label: 'Alloggi', icon: Hotel, color: 'bg-purple-50 text-purple-600' },
   { key: 'activities', label: 'Attività', icon: MapPin, color: 'bg-green-50 text-green-600' },
   { key: 'food', label: 'Cibo', icon: Utensils, color: 'bg-orange-50 text-orange-600' },
-  { key: 'transport', label: 'Trasporti', icon: Train, color: 'bg-cyan-50 text-cyan-600' },
-  { key: 'misc', label: 'Extra', icon: Euro, color: 'bg-gray-50 text-gray-600' },
+  { key: 'misc', label: 'Extra e Imprevisti', icon: Euro, color: 'bg-gray-50 text-gray-600' },
 ] as const;
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
@@ -198,7 +197,7 @@ export default function Step3BudgetView({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
             {CATEGORIES.map(({ key, label, icon: Icon, color }) => {
               const value = budgetBreakdown[key as keyof typeof budgetBreakdown];
               const amount = typeof value === 'number' ? value : 0;
@@ -207,7 +206,7 @@ export default function Step3BudgetView({
               return (
                 <div key={key} className={cn('p-5 rounded-2xl text-center', bgColor)}>
                   <Icon className={cn('w-5 h-5 mx-auto mb-2', textColor)} />
-                  <p className="text-xs text-gray-500 mb-1">{label}</p>
+                  <p className="text-xs font-bold text-gray-500 mb-1">{label}</p>
                   <p className="text-xl font-bold text-gray-800">
                     {amount > 0 ? formatCurrency(amount) : '—'}
                   </p>
@@ -263,27 +262,104 @@ export default function Step3BudgetView({
                   className="overflow-hidden"
                 >
                   <div className="mt-6 space-y-6">
-                    {costTable.map((category, catIdx) => (
-                      <div key={catIdx} className="bg-white rounded-2xl border border-brand-ink/5 overflow-hidden">
-                        <div className="p-5 border-b border-brand-ink/5 flex items-center justify-between">
-                          <h3 className="font-serif text-lg text-brand-ink">{category.category}</h3>
-                          <span className="font-bold text-brand-accent">{formatCurrency(category.subtotal)}</span>
-                        </div>
-                        <div className="divide-y divide-brand-ink/5">
-                          {category.items.map((item, itemIdx) => (
-                            <div key={itemIdx} className="px-5 py-3 flex items-center justify-between">
-                              <div>
-                                <p className="text-sm text-brand-ink">{item.name}</p>
-                                {item.notes && (
-                                  <p className="text-[10px] text-brand-ink/40">{item.notes}</p>
-                                )}
-                              </div>
-                              <span className="text-sm font-medium text-brand-ink/70">{formatCurrency(item.cost)}</span>
+                    {costTable.map((category, catIdx) => {
+                      // Determine table structure by category
+                      const isTransport = category.category === 'Trasporti';
+                      const isAccommodation = category.category === 'Alloggi';
+                      const isActivity = category.category === 'Attività';
+
+                      return (
+                        <div key={catIdx} className="bg-white rounded-2xl border border-brand-ink/5 overflow-hidden">
+                          {/* Category header — bold */}
+                          <div className="p-5 border-b border-brand-ink/5 flex items-center justify-between bg-brand-ink/[0.02]">
+                            <h3 className="font-bold text-lg text-brand-ink">{category.category}</h3>
+                            <span className="font-bold text-brand-accent text-lg">{formatCurrency(category.subtotal)}</span>
+                          </div>
+
+                          {/* Table header row */}
+                          {isTransport && (
+                            <div className="grid grid-cols-[100px_1fr_90px] px-5 py-2 border-b border-brand-ink/5 bg-gray-50 text-[10px] font-bold uppercase tracking-widest text-brand-ink/40">
+                              <span>Data</span>
+                              <span>Descrizione</span>
+                              <span className="text-right">Costo</span>
                             </div>
-                          ))}
+                          )}
+                          {isAccommodation && (
+                            <div className="grid grid-cols-[90px_100px_1fr_50px_90px] px-5 py-2 border-b border-brand-ink/5 bg-gray-50 text-[10px] font-bold uppercase tracking-widest text-brand-ink/40">
+                              <span>Data arrivo</span>
+                              <span>Luogo</span>
+                              <span>Alloggio</span>
+                              <span className="text-center">Notti</span>
+                              <span className="text-right">Costo</span>
+                            </div>
+                          )}
+                          {isActivity && (
+                            <div className="grid grid-cols-[90px_80px_1fr_50px_80px] px-5 py-2 border-b border-brand-ink/5 bg-gray-50 text-[10px] font-bold uppercase tracking-widest text-brand-ink/40">
+                              <span>Data</span>
+                              <span>Luogo</span>
+                              <span>Descrizione</span>
+                              <span className="text-center">Durata</span>
+                              <span className="text-right">Costo</span>
+                            </div>
+                          )}
+
+                          {/* Table rows */}
+                          <div className="divide-y divide-brand-ink/5">
+                            {category.items.map((item, itemIdx) => {
+                              if (isTransport) {
+                                return (
+                                  <div key={itemIdx} className="grid grid-cols-[100px_1fr_90px] px-5 py-3 items-center">
+                                    <span className="text-xs text-brand-ink/60 font-mono">{item.date || '—'}</span>
+                                    <div>
+                                      <p className="text-sm text-brand-ink">{item.name}</p>
+                                      {item.description && <p className="text-[10px] text-brand-ink/40">{item.description}</p>}
+                                    </div>
+                                    <span className="text-sm font-medium text-brand-ink/70 text-right">{formatCurrency(item.cost)}</span>
+                                  </div>
+                                );
+                              }
+                              if (isAccommodation) {
+                                return (
+                                  <div key={itemIdx} className="grid grid-cols-[90px_100px_1fr_50px_90px] px-5 py-3 items-center">
+                                    <span className="text-xs text-brand-ink/60 font-mono">{item.date || '—'}</span>
+                                    <span className="text-xs text-brand-ink/70">{item.location || item.name}</span>
+                                    <div>
+                                      <p className="text-sm text-brand-ink">{item.hotelName || item.name}</p>
+                                      {item.notes && <p className="text-[10px] text-brand-ink/40">{item.notes}</p>}
+                                    </div>
+                                    <span className="text-xs text-brand-ink/60 text-center">{item.nights ?? '—'}</span>
+                                    <span className="text-sm font-medium text-brand-ink/70 text-right">{formatCurrency(item.cost)}</span>
+                                  </div>
+                                );
+                              }
+                              if (isActivity) {
+                                return (
+                                  <div key={itemIdx} className="grid grid-cols-[90px_80px_1fr_50px_80px] px-5 py-3 items-center">
+                                    <span className="text-xs text-brand-ink/60 font-mono">{item.date || '—'}</span>
+                                    <span className="text-xs text-brand-ink/70">{item.location || '—'}</span>
+                                    <p className="text-sm text-brand-ink truncate">{item.description || item.name}</p>
+                                    <span className="text-xs text-brand-ink/60 text-center">{item.duration || '—'}</span>
+                                    <span className="text-sm font-medium text-brand-ink/70 text-right">{formatCurrency(item.cost)}</span>
+                                  </div>
+                                );
+                              }
+                              // Default: Cibo, Extra e Imprevisti
+                              return (
+                                <div key={itemIdx} className="px-5 py-3 flex items-center justify-between">
+                                  <div>
+                                    <p className="text-sm text-brand-ink">{item.name}</p>
+                                    {item.notes && (
+                                      <p className="text-[10px] text-brand-ink/40">{item.notes}</p>
+                                    )}
+                                  </div>
+                                  <span className="text-sm font-medium text-brand-ink/70">{formatCurrency(item.cost)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </motion.div>
               )}
