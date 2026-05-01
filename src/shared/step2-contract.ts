@@ -64,6 +64,7 @@ export const FlightSegmentSchema = z.object({
       departureTime: z.string().nullish(),
       arrivalTime: z.string().nullish(),
       duration: z.string().nullish(),
+      distance: z.string().nullish(),
       bookingUrl: z.string().nullish(),
       verified: z.boolean().optional(),
     })

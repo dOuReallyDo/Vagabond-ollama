@@ -413,7 +413,15 @@ ISTRUZIONI:
 4. Imposta "verified" a false.
 5. Per "bookingUrl" usa il sito ufficiale della compagnia (es. https://www.ryanair.com, https://www.trenitalia.com).
 
-Se la preferenza è "Auto privata", cerca informazioni su distanza e pedaggi. Se è "Treno", cerca tratte ferroviarie reali.
+Se la preferenza è "Auto privata":
+- Cerca su Google Maps la DISTANZA in km e il TEMPO DI PERCORRENZA reale per ogni tratta.
+- Includi il campo "distance" con la distanza (es. "1.850 km").
+- In "estimatedPrice" metti il costo stimato di benzina + pedaggi PER TUTTO IL PERCORSO (non per persona).
+- In "duration" metti il tempo di percorrenza reale (es. "18h totale, consigliato in 2 giorni").
+- In "bookingUrl" metti un link a Google Maps per la tratta (es. https://www.google.com/maps/dir/CittàA/CittàB).
+- IMPOSTA departureTime e arrivalTime a null — per l'auto non ha senso.
+
+Se è "Treno", cerca tratte ferroviarie reali.
 
 🔗 SICUREZZA DEI LINK:
 - USA SOLO link a siti ufficiali delle compagnie (tap.pt, ryanair.com, trenitalia.com, ecc.)

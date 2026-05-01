@@ -430,9 +430,28 @@ function FlightCard({
         </div>
       </div>
 
-      {/* Times */}
+      {/* Times / Car info */}
       <div className="space-y-3 py-4 border-y border-brand-ink/5 mb-4">
-        {(!flight.departureTime && !flight.arrivalTime) ? (
+        {isCarRoute ? (
+          <div className="space-y-3">
+            {flight.distance && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-brand-ink/40 uppercase font-bold">Distanza</span>
+                <span className="text-sm font-bold text-brand-ink">{flight.distance}</span>
+              </div>
+            )}
+            {flight.duration && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-brand-ink/40 uppercase font-bold">Tempo di percorrenza</span>
+                <span className="text-sm font-bold text-brand-ink">{flight.duration}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-brand-ink/40 uppercase font-bold">Benzina + pedaggi</span>
+              <span className="text-sm font-bold text-brand-accent">€{flight.estimatedPrice}</span>
+            </div>
+          </div>
+        ) : (!flight.departureTime && !flight.arrivalTime) ? (
           <div className="flex items-center gap-3 bg-amber-50 rounded-2xl px-4 py-3">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
             <div>
@@ -444,10 +463,7 @@ function FlightCard({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-1.5 bg-blue-50 rounded-lg">
-                {isCarRoute
-                  ? <Car className="w-3 h-3 text-blue-600" />
-                  : <Plane className="w-3 h-3 text-blue-600" />
-                }
+                <Plane className="w-3 h-3 text-blue-600" />
               </div>
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-brand-ink/40">Partenza</p>
@@ -470,7 +486,21 @@ function FlightCard({
         )}
       </div>
 
-      {effectiveFlightUrl && (
+      {/* Link: Google Maps for car, airline site for flights */}
+      {isCarRoute ? (
+        <a
+          href={(() => {
+            if (flight.bookingUrl && flight.bookingUrl.includes('google.com/maps')) return flight.bookingUrl;
+            return `https://www.google.com/maps/dir/${routeParts[0]?.trim()}/${routeParts[1]?.trim()}`;
+          })()}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-sm font-bold text-brand-accent hover:underline flex items-center gap-1"
+        >
+          Vedi su Google Maps <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      ) : effectiveFlightUrl && (
         <a
           href={effectiveFlightUrl}
           target="_blank"
