@@ -138,13 +138,13 @@ function HotelCard({
   stopName?: string;
   inputs?: { startDate?: string; endDate?: string; people?: { adults: number; children: { age: number }[] } };
 }) {
-  // Generate real search URLs — AI URLs are often fake/broken
+  // Generate real search URLs — AI URLs are often fake/deep links that 404
+  // Only trust booking.com/searchresults or tripadvisor /Search?q= URLs from AI.
+  // All other AI-generated deep links get replaced with search URLs built from real data.
   const effectiveBookingUrl = (() => {
-    // If AI gave a real booking.com URL with searchresults, trust it
+    // Only trust AI booking.com URL if it's a search page (not a deep /hotel/ link)
     if (hotel.bookingUrl && hotel.bookingUrl.includes('booking.com/searchresults')) return hotel.bookingUrl;
-    // If AI gave a valid whitelisted URL (tripadvisor, etc.), trust it
-    if (hotel.bookingUrl && isWhitelistedUrl(hotel.bookingUrl)) return hotel.bookingUrl;
-    // Otherwise generate a real Booking.com search URL with dates
+    // Always generate a real Booking.com search URL — it works with real hotel names + dates
     if (hotel.name && stopName && inputs?.startDate && inputs?.endDate) {
       return getBookingSearchUrlWithDates(hotel.name, stopName, inputs.startDate, inputs.endDate, inputs.people?.adults || 2, inputs.people?.children);
     }
@@ -153,7 +153,9 @@ function HotelCard({
   })();
 
   const effectiveOfficialUrl = (() => {
-    if (hotel.officialUrl && isWhitelistedUrl(hotel.officialUrl)) return hotel.officialUrl;
+    // Only trust AI tripadvisor URL if it's a search page
+    if (hotel.officialUrl && hotel.officialUrl.includes('tripadvisor.it/Search')) return hotel.officialUrl;
+    if (hotel.officialUrl && hotel.officialUrl.includes('tripadvisor.com/Search')) return hotel.officialUrl;
     // Fallback: Google search for official site
     if (hotel.name) return getGoogleSearchUrl(`${hotel.name} sito ufficiale`);
     return null;
@@ -274,12 +276,14 @@ function HotelCard({
 // ─── RESTAURANT CARD ────────────────────────────────────────────────────────
 
 function RestaurantCard({ restaurant, stopName }: { restaurant: RestaurantStop['options'][0]; stopName?: string }) {
-  // Generate real TripAdvisor search URL — AI URLs are often fake
+  // Generate real TripAdvisor search URL — AI deep links are often fake/404
   const effectiveUrl = (() => {
-    if (restaurant.sourceUrl && isWhitelistedUrl(restaurant.sourceUrl)) return restaurant.sourceUrl;
+    // Only trust AI tripadvisor URL if it's a search page
+    if (restaurant.sourceUrl && (restaurant.sourceUrl.includes('tripadvisor.it/Search') || restaurant.sourceUrl.includes('tripadvisor.com/Search'))) return restaurant.sourceUrl;
+    // Generate search URL from restaurant name + city
     if (restaurant.name && stopName) return getTripAdvisorSearchUrl(restaurant.name, stopName);
     if (restaurant.name) return getGoogleSearchUrl(`${restaurant.name} ristorante`);
-    return restaurant.sourceUrl || null;
+    return null;
   })();
 
   return (
@@ -311,9 +315,9 @@ function RestaurantCard({ restaurant, stopName }: { restaurant: RestaurantStop['
         <span className="font-bold">{restaurant.priceRange}</span>
       </div>
 
-      {(effectiveUrl || restaurant.sourceUrl) && (
+      {effectiveUrl && (
         <a
-          href={effectiveUrl || restaurant.sourceUrl!}
+          href={effectiveUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-accent hover:underline"
@@ -343,7 +347,14 @@ function FlightCard({
   const totalPrice = flight.estimatedPrice * numPeople;
 
   const effectiveFlightUrl = (() => {
-    if (flight.bookingUrl && isWhitelistedUrl(flight.bookingUrl)) return flight.bookingUrl;
+    // Only trust AI airline URL if it's clearly the homepage (no deep paths)
+    if (flight.bookingUrl && isWhitelistedUrl(flight.bookingUrl)) {
+      const hostname = new URL(flight.bookingUrl).hostname;
+      const pathname = new URL(flight.bookingUrl).pathname;
+      // Trust only homepage-level URLs (e.g. ryanair.com, ryanair.com/it)
+      if (pathname === '/' || pathname.length <= 4) return flight.bookingUrl;
+    }
+    // Generate search for airline official site
     if (flight.airline) return getAirlineSearchUrl(flight.airline);
     return flight.bookingUrl || null;
   })();
