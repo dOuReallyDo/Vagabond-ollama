@@ -352,32 +352,19 @@ DETTAGLI VIAGGIO:
 - Stopover richiesto: ${inputs.stopover || "Nessuno"}
 - Note: ${inputs.notes || "nessuna"}
 
-🔗 SICUREZZA DEI LINK (OBBLIGATORIO):
-Per TUTTI i campi URL nel JSON (sourceUrl, imageUrl, heroImageUrl), segui queste regole:
-- USA SOLO link a siti noti e affidabili (booking.com, tripadvisor.it/.com, lonelyplanet.com, google.com/maps, ecc.)
-- NON usare MAI: URL shortener, link a siti sconosciuti con TLD sospetti, link HTTP (solo HTTPS), link con parametri di redirect.
-- Se non riesci a trovare un link sicuro per una risorsa, lascia il campo URL vuoto (undefined/null) piuttosto che inserire un link dubbio.
-
 REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
-- destinationOverview, travelHighlights: 2-3 frasi persuasive.
-- Attività per giorno: MAX 3 attività (mattina, pomeriggio, sera). Descrizioni: 1 frase.
-- Attrazioni: MAX 3 elementi, descrizione: MAX 10 parole.
-- localTips: MAX 3 elementi.
-- sources: MAX 5 fonti.
-- JSON: SOLO il JSON, zero markdown, zero commenti, niente testo dopo la chiusura }.
+- Attività per giorno: MAX 3 (mattina, pomeriggio, sera). Descrizioni: 1 frase.
+- Attrazioni: MAX 3, descrizione: MAX 10 parole.
+- localTips: MAX 3, sources: MAX 5.
+- Per ogni attività turistica includi "sourceUrl" con link a google.com/search?q=Nome+Città. NON per pernottamento/check-in.
+- JSON: SOLO il JSON, zero markdown, niente testo dopo }.
 
-REGOLE PER LA DISTRIBUZIONE DELLE TAPPE (OBBLIGATORIE):
-- NON cambiare città ogni giorno. Raggruppa i pernottamenti per ridurre gli spostamenti.
-- Città principali (capirettali, mete turistiche importanti): MINIMO 2-3 notti.
-- Città secondarie/piccole: anche 1 notte se vale la pena, ma senza esagerare.
-- REGOLA GENERALE: per un viaggio di N giorni, il numero di tappe (città dove si pernotta) NON deve superare N/2. Esempio: 10 giorni = MAX 5 tappe, 6 giorni = MAX 3 tappe.
-- Se la destinazione è un'unica nazione/isola, concentrati su 2-3 basi e fai escursioni giornaliere da lì.
-- OGNI "location" nel campo attività di un giorno deve corrispondere alla città dove si pernotta quella notte. Se l'attività è un'escursione in una città vicina, indicare la location dell'escursione ma il pernottamento rimane nella base.
-- Il campo "title" di ogni giorno deve riflettere la tappa/città dove si pernotta.
+REGOLE TAPPE (OBBLIGATORIE):
+- NON cambiare città ogni giorno. Città principali: MINIMO 2-3 notti.
+- MAX N/2 tappe per viaggio di N giorni (10gg = max 5 tappe).
+- "location" e "title" di ogni giorno = città dove si pernotta.
 
-FONTI: Alla fine del JSON, includi un array "sources" con i blog, guide turistiche e siti ufficiali che hai consultato via web_search. Inserisci SOLO fonti reali e verificabili, con URL corretti.
-
-SOURCEURL DELLE ATTIVITÀ: Per OGNI attività nel itinerario giornaliero, includi un campo "sourceUrl" con un link a ricerca Google (https://www.google.com/search?q=Nome+Attività+Città) o tripadvisor.it. Questo è OBBLIGATORIO — l'utente deve poter cliccare per approfondire. NON includere sourceUrl per pernottamento, check-in, check-out, colazione, tempo libero.
+FONTI: Includi array "sources" con blog/guide verificati via web_search.
 
 ITINERARIO GIORNALIERO:
 ${dateList}
