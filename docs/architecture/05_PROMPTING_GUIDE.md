@@ -59,6 +59,39 @@ Ogni interesse attiva una regola specifica:
 - Prefer official sources for safety/visa
 - `departureTime` e `arrivalTime` sempre null (non verificabili)
 - `verified: false` su tutti i voli
+- **NON fabbricare deep link**: GLM-5.1 tende a generare URL deep finti (es. `booking.com/hotel/it/fake.html`, `tripadvisor.it/Restaurant_Review-fake`) che 404. Per `sourceUrl` e `bookingUrl`, usare SOLO search URL (es. `booking.com/searchresults?...`, `tripadvisor.it/Search?...`, `google.com/search?...`) o URL homepage ufficiali verificati. Il frontend non usa mai i deep link AI — genera sempre search URL reali dai dati strutturati.
+
+## 🔗 sourceUrl Requirements (Step 1 & Step 2)
+
+### Step 2 — Ristoranti
+- `sourceUrl` è **OBBLIGATORIO** per ogni ristorante
+- Deve essere un link a `tripadvisor.it` (search URL, es. `https://www.tripadvisor.it/Search?q=...`)
+- Se l'AI non trova il link TripAdvisor specifico, generare un search URL: `https://www.tripadvisor.it/Search?q=${name}+${city}`
+- Gli esempi JSON nel prompt Step 2 includono SEMPRE `sourceUrl` nello schema ristoranti
+
+### Step 1 — Attività
+- `sourceUrl` è **OBBLIGATORIO** per attività turistiche (musei, attrazioni, esperienze)
+- Per le attività turistiche: usare `google.com/search?q=...` come fallback
+- **NO** `sourceUrl` per attività di tipo pernottamento/check-in/relax (non ha senso linkare hotel check-in)
+- Le attività Step 1 mostrano sempre "Scopri di più" con link (tranne pernottamento/relax)
+- Gli esempi JSON nel prompt Step 1 includono `sourceUrl` per le attività turistiche
+
+## 🚗 Car Route Prompting (Step 2 — "Auto privata")
+
+Quando `flightPreference = "Auto privata"`, il prompt di ricerca voli include istruzioni dettagliate per generare info sul percorso stradale invece di voli:
+
+- `airline`: "Auto privata" (identificatore della modalità)
+- `route`: "Città di partenza → Città di arrivo (Auto)"
+- `estimatedPrice`: costo stimato carburante + pedaggi (es. "€85")
+- `duration`: tempo di viaggio stimato (es. "4h 30min")
+- `distance`: distanza in km (es. "450 km") — campo dedicato nel FlightSegmentSchema
+- `departureTime` e `arrivalTime`: `null` (non applicabile per auto)
+- `bookingUrl`: `null` (non si prenota un'auto)
+
+Il FlightCard renderizza un layout dedicato per "Auto privata" con:
+- Distanza (km), tempo di viaggio, costo carburante+pedaggi
+- Link "Vedi su Google Maps" con URL direzioni (generato dal frontend, non dall'AI)
+- Nessun orario volo, nessun pulsante "Prenota"
 
 ## 🔗 URL Safety Prompt Rules
 

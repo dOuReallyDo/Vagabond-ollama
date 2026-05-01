@@ -182,6 +182,7 @@ interface AccommodationTransport {
       departureTime?: string | null;
       arrivalTime?: string | null;
       duration?: string | null;
+      distance?: string | null;       // 🆕 Per "Auto privata" — distanza in km (es. "450 km")
       bookingUrl?: string;
       verified?: boolean;
     }>;
@@ -275,3 +276,10 @@ Tabella: `saved_trips_v2` (separata da `saved_trips`, v1 intatta)
 ## ⚠️ URL Sanitization
 
 All v1 TravelPlan objects and v2 ItineraryDraft/AccommodationTransport objects are sanitized via `sanitizeTravelPlanAsync()` before rendering or saving. See CLAUDE.md for details.
+
+**⚠️ AI Deep Links**: The frontend never uses AI-generated deep links directly (e.g., `booking.com/hotel/it/fake.html`). Instead, it generates real search URLs from structured data:
+- `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` with per-stop dates for HotelCard
+- Google Search `${name} ${city} tripadvisor` for RestaurantCard
+- `getGoogleSearchUrl(query)` for Step1 activity "Scopri di più" links
+- Google Maps directions URL for car routes
+- Only search URLs are trusted: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`

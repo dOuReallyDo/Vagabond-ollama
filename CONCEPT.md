@@ -42,8 +42,18 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 ## Design Philosophy
 - **Minimalismo**: L'interfaccia deve sparire per lasciare spazio alle immagini e alle informazioni.
 - **Fiducia**: Ogni link deve funzionare (URL Safety 3-layer + v2 sanitizers per flusso 3-step), ogni costo deve essere realistico (cap trasporti al 30% del budget). URL AI-generati sono sanificati sia nel flusso legacy (`sanitizeTravelPlanAsync()`) che nel flusso v2 (`sanitizeStep1Urls()` + `sanitizeStep2Urls()`).
+- **Mai fidarsi dei deep link AI**: GLM-5.1 fabbrica link finti (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) che portano a 404. Il frontend genera SEMPRE search URL reali dai dati strutturati — HotelCard usa `getBookingSearchUrlWithDates` con date per-tappa, RestaurantCard usa Google Search, FlightCard per auto usa Google Maps. Solo le search URL (non i deep link) sono trusted.
 - **Progressività**: L'utente conferma e seleziona prima di procedere — niente sorprese, niente costi nascosti.
 - **Resilienza**: Se l'AI tronca la risposta, il sistema ritenta automaticamente con un prompt più conciso.
+
+## Car Route UX — "Auto privata"
+Quando l'utente sceglie "Auto privata" come trasporto, il FlightCard non mostra info volo ma un layout dedicato:
+- **Distanza** in km, **tempo di viaggio**, **costo carburante+pedaggi**
+- Link "Vedi su Google Maps" con URL direzioni per il tragitto
+- Niente orari volo, niente "Prenota" — è un percorso stradale, non un volo
+
+## Per-Stop Booking Dates
+Ogni tappa dell'itinerario ha le sue date di check-in/check-out per Booking.com, calcolate accumulando le notti dalla data di partenza del viaggio. Questo dà link di ricerca più pertinenti rispetto a usare le date dell'intero viaggio.
 
 ## Stack
 - **AI**: GLM-5.1 via Zhipu API (con web_search integrato)

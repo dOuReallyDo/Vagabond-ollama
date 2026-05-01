@@ -39,6 +39,10 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **Read-Only Trip Viewing**: Visualizza viaggi salvati navigando tra step senza modificare (solo "← Indietro" / "Avanti →")
 - **URL Safety**: 3-layer protection per tutti i link (whitelist + structural + Google Safe Browsing)
 - **v2 URL Safety**: `sanitizeStep1Urls()` / `sanitizeStep2Urls()` — sanificazione dedicata per il flusso 3-step
+- **Search URL reali, niente deep link AI**: Il frontend genera SEMPRE search URL (Booking.com search, Google, TripAdvisor Search) dai dati reali. I deep link AI (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) sono ignorati — causano 404
+- **Car Route Layout**: FlightCard dedicato per "Auto privata" — mostra distanza, tempo, carburante+pedaggi e link Google Maps
+- **Per-Stop Booking Date**: Booking.com URL con check-in/checkout per ogni tappa (non date intero viaggio)
+- **Step Navigation Read-Only**: Step 1 e 2 sempre visibili quando si naviga indietro, in modalità read-only
 - **localStorage Fallback**: Funziona anche senza login
 
 ## 🏗️ Architettura 3-Step
@@ -194,6 +198,14 @@ Nuova tabella per l'architettura 3-step:
    - Helper condivisi: `runAsyncSanitizer()`, `isSafeImageUrl()` (whitelist CDN immagini)
 3. **Google Safe Browsing API**: verifica batch per domini sconosciuti (fail-closed)
 
+### ⚠️ Real Search URLs, No AI Deep Links
+GLM-5.1 fabbrica deep link finti che 404. Il frontend **non li usa mai**:
+- **HotelCard** → `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` con date per-stop
+- **RestaurantCard** → Google Search `${name} ${city} tripadvisor`
+- **FlightCard (voli)** → solo URL homepage airline; **(auto)** → Google Maps direzioni
+- **Attività Step1** → "Scopri di più" con `getGoogleSearchUrl()` per attività turistiche
+- Solo search URL AI sono trusted: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`
+
 ## ⚠️ Note di Sviluppo
 
 - **Zod**: Usa `.nullish()` (non `.optional()`) per `z.string()` e `z.number()` — GLM-5.1 ritorna `null`
@@ -201,7 +213,8 @@ Nuova tabella per l'architettura 3-step:
 - **Markdown code blocks**: GLM-5.1 con `web_search` wrappa JSON in `\`\`\`json...\`\`\``. Sempre strippare prima del parsing JSON (`text.replace(/^```json\s*|^```\s*|```$/gm, "")`)
 - **safeParse(j)**: Valida il dato pulito, non il JSON grezzo (`safeParse(json)` è un bug)
 - **safeParse() per voli**: Step 2 voli usa `.safeParse()` con error logging, non `.parse()`
-- **Supabase**: Mai usare il JS client per save/load — si blocca su token refresh. Usa REST API.
+- **Supabase**: Mai usare il JS client per save/load — si blocca su token refresh. Usa REST API. (Anche `updateProfile`/`fetchProfile` in `auth.tsx` usano REST API + JWT.)
+- **Deep link AI**: Mai fidarsi — il frontend genera search URL reali (`getBookingSearchUrlWithDates`, `getGoogleSearchUrl`), non usa i link diretti dell'AI che 404
 - **Vercel**: Ogni endpoint API deve avere un `api/*.ts` serverless function, non solo `server.ts`
 - **Git**: Sempre `git pull` prima di pushare — Trinity lavora sullo stesso repo
 

@@ -85,6 +85,8 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - **System message**: Flight search includes `"Sei un assistente che risponde SOLO in JSON. Nessun testo prima o dopo il JSON. Nessun markdown."` to reduce markdown wrapping.
 - **Diagnostic logging**: `[Step2-Flights] Raw response length/first 300 chars` logged before parsing; errors logged on parse failure.
 - **User selection**: `selectedIndex` field on AccommodationStop and FlightSegment — user clicks to select preferred option per stop/segment
+- **Per-stop booking dates**: `stopDates` computed via `useMemo` in Step2AccommodationView, accumulating nights from `startDate` for Booking.com search URLs
+- **Car route layout**: When `flightPreference = "Auto privata"`, FlightCard shows distance (km), travel time, fuel+tolls cost, "Vedi su Google Maps" link — no flight times, no "Prenota"
 - **TripTimeline**: horizontal stop flow at top of page (e.g. "Milano → Lisbona (3 notti) → Porto (2gg) → Milano")
 - **RunningTotalBar**: live summary of selected accommodation + transport costs
 - NOT modifiable — to change, go back to Step 1 (invalidates 2-3)
@@ -188,6 +190,8 @@ React context (`AuthProvider`) wrapping Supabase auth. Exposes:
 - `signIn`, `signUp`, `signInWithGoogle`, `signOut`
 - `updateProfile`, `refreshProfile`
 
+**Profile operations use REST API + JWT from localStorage** (not Supabase JS client) to avoid `initializePromise` hangs. Local `getAccessTokenFromLocalStorage()` helper reads JWT from `sb-{ref}-auth-token` key. This follows the same pattern as `storage-v2.ts` for trip CRUD.
+
 `TravelerProfile` type is defined here (fields: `age_range`, `traveler_type`, `interests[]`, `pace`, `mobility`, `familiarity`, `display_name`).
 
 ### Storage (Legacy) (`src/lib/storage.ts`)
@@ -236,6 +240,29 @@ Large single-file component (~3600+ lines) managing:
    - Shared helpers: `runAsyncSanitizer()` (eliminates duplicate from `sanitizeTravelPlanAsync`), `isSafeImageUrl()` for image CDN whitelist
    - Called in App.tsx after `generateItinerary()`, `modifyItinerary()`, `searchAccommodationsAndTransport()`
 3. **Google Safe Browsing API (server)**: `POST /api/check-url` proxies requests.
+
+### ⚠️ AI Deep Link Pitfall — NEVER Trust AI-Generated Deep Links
+
+GLM-5.1 fabricates fake deep links that look real but 404 (e.g., `booking.com/hotel/it/fake.html`, `tripadvisor.it/Restaurant_Review-fake`). **The frontend NEVER uses AI deep links.** Instead, it generates search URLs from real data (hotel name, city, dates):
+
+- **HotelCard**: Uses `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` with per-stop dates — never uses AI `bookingUrl` directly
+- **RestaurantCard**: Uses Google Search `${name} ${city} tripadvisor` (TripAdvisor Search blocks direct linking)
+- **FlightCard**: For flights, only homepage-level whitelisted URLs (airline.com). For "Auto privata" car routes, Google Maps directions link
+- **Step1 activities**: "Scopri di più" link on tourist activities (not on pernottamento/relax), fallback to Google Search via `getGoogleSearchUrl()`
+- **Only AI search URLs are trusted**: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`
+- **`getGoogleSearchUrl(query)`**: Added to `urlSafety.ts` as a safe fallback URL generator
+
+### Per-Stop Booking Dates
+
+Booking.com search URLs use check-in/checkout dates calculated **per stop** from the itinerary, not whole-trip dates. `stopDates` is computed via `useMemo` in `Step2AccommodationView`, accumulating nights from `startDate`. Each stop gets its own `(checkIn, checkOut)` pair based on how many nights the itinerary spends there.
+
+### Car Route Dedicated Layout (FlightCard)
+
+When `flightPreference = "Auto privata"`, FlightCard renders a dedicated layout instead of flight info:
+- Shows: **distance** (km), **travel time**, **fuel+tolls cost** — no flight times, no "Prenota" button
+- Link: "Vedi su Google Maps" with route directions URL
+- Schema: `distance: z.string().nullish()` added to `FlightSegmentSchema` in `step2-contract.ts`
+- Step 2 flight search prompt includes detailed car route instructions when auto is selected
 
 ### Country Lookup (`getDestinationCountries`)
 
@@ -300,6 +327,26 @@ Routes defined ONLY in `server.ts` return 405 on Vercel. Must add corresponding 
 ### Supabase JS Client Hangs
 Never use `supabase.from().insert()` or `.select()` directly for saves — the JS client blocks during token refresh. Always use REST API via `fetch()` with JWT from localStorage (see `storage-v2.ts` pattern).
 
+### Auth REST API (Profile Operations)
+`updateProfile` and `fetchProfile` in `auth.tsx` now use REST API + JWT from `localStorage` instead of Supabase JS client. This fixes the `initializePromise` hang that caused the profile save button to freeze. A local `getAccessTokenFromLocalStorage()` helper reads JWT from `sb-{ref}-auth-token` in localStorage. This follows the same pattern used in `storage-v2.ts` for trip CRUD.
+
+### AI Deep Links — NEVER Trust Them
+GLM-5.1 generates fake deep links (`booking.com/hotel/it/fake.html`, `tripadvisor.it/Restaurant_Review-fake`) that 404. The frontend generates search URLs from real data instead:
+- HotelCard → `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` with per-stop dates
+- RestaurantCard → Google Search `${name} ${city} tripadvisor`
+- FlightCard flights → homepage-level whitelisted URLs only; car routes → Google Maps link
+- Step1 activities → "Scopri di più" on tourist activities, `getGoogleSearchUrl()` fallback
+- Only search URLs are trusted: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`
+
+### Per-Stop Booking Dates
+Booking.com URLs use per-stop check-in/checkout dates (computed via `useMemo` in `Step2AccommodationView`, accumulating nights from `startDate`), not whole-trip dates.
+
+### Car Route FlightCard Layout
+When `flightPreference = "Auto privata"`, FlightCard shows distance (km), travel time, fuel+tolls cost — no flight times, no "Prenota" button. Link: "Vedi su Google Maps" with directions URL. `distance` field added to `FlightSegmentSchema`.
+
+### Step Navigation — Read-Only Mode
+Steps 1 and 2 are always visible when navigating back from Step 3 (read-only mode). Components always render, receiving `readOnly={step1Confirmed || viewingSavedTrip}`. "Itinerario confermato!" / "Alloggi confermati!" placeholders only show when next step data hasn't loaded yet.
+
 ### 3-Step Flow
 - Modification is ONLY allowed in Step 1. Modifying Step 1 invalidates Steps 2-3.
 - Steps 2 and 3 are confirmed, not modified.
@@ -329,6 +376,8 @@ When rebasing causes conflicts, read both sides carefully. Trinity's fixes may o
 ### Read-Only Mode for Saved Trips
 - All 3 step components accept `readOnly?: boolean` prop
 - `viewingSavedTrip` state in App.tsx — set to `true` when loading a saved trip for viewing
+- **Steps 1 and 2 are always rendered** when navigating back from Step 3 (not hidden behind conditional). They receive `readOnly={step1Confirmed || viewingSavedTrip}`
+- "Itinerario confermato!" / "Alloggi confermati!" placeholders only show when next step data hasn't loaded yet
 - When `readOnly=true`: no edit/confirm/save buttons, only "← Indietro" / "Avanti →" navigation between steps
 - Step1: hides modify/conferma, shows "Avanti →"
 - Step2: hotel/flight selection disabled, no conferma, shows "← Indietro" + "Avanti →"

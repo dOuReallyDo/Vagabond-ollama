@@ -17,6 +17,7 @@
 - No service_role key in client code — anon key only
 - Auth state: `onAuthStateChange` only clears user/session on explicit `SIGNED_OUT` event. Transient null sessions during `TOKEN_REFRESHED` are ignored.
 - `persistSession: true` in supabase.ts (required for Vercel — session must survive across requests)
+- **Profile operations bypass Supabase JS client**: `updateProfile` and `fetchProfile` in `auth.tsx` use REST API + JWT read directly from `localStorage` (`getAccessTokenFromLocalStorage()` helper) instead of Supabase JS client. This avoids `initializePromise` hangs that blocked the profile save button. Same pattern used by `storage-v2.ts` for trip CRUD.
 
 ## Data Privacy
 
@@ -71,13 +72,15 @@ Vagabond-ollama implements a 3-layer URL protection system to prevent users from
 
 | Category | Replacement |
 |----------|------------|
-| Hotel/Booking | Booking.com search URL (with dates & guests from travelInputs) |
-| Restaurant | TripAdvisor search URL |
-| Attraction | TripAdvisor search URL |
-| Flight | Google search for airline official site |
-| Transport | Google Maps link |
+| Hotel/Booking | Booking.com search URL with per-stop dates & guests (`getBookingSearchUrlWithDates`) |
+| Restaurant | Google Search `${name} ${city} tripadvisor` (TripAdvisor Search blocks direct linking) |
+| Attraction | Google Search via `getGoogleSearchUrl()` |
+| Flight | Homepage-level whitelisted airline URLs only |
+| Car route ("Auto privata") | Google Maps directions link |
 | Travel Blog | Removed entirely |
 | Images from non-whitelisted CDNs | Removed (falls back to picsum.photos) |
+
+**⚠️ AI Deep Links**: GLM-5.1 fabricates fake deep links (e.g., `booking.com/hotel/it/fake.html`, `tripadvisor.it/Restaurant_Review-fake`) that 404. The frontend **never trusts AI deep links** — it generates real search URLs from structured data (hotel name + city + per-stop dates). Only AI search URLs (e.g., `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`) are trusted.
 
 ### Layer 3: Google Safe Browsing API (`src/lib/safeBrowsing.ts` + `api/check-url.ts`)
 - Unknown domains (not in whitelist, not structurally invalid) are checked against Google's Safe Browsing database **in batch** before any replacement decision
@@ -90,6 +93,9 @@ Vagabond-ollama implements a 3-layer URL protection system to prevent users from
 
 ### Safe Alternative Generation
 - `generateSafeAlternative()` creates contextually appropriate replacement URLs
-- Booking.com search URLs include travel dates, guest count, and destination from `TravelInputs`
-- TripAdvisor and Google Maps searches use the entity name
+- Booking.com search URLs include **per-stop** travel dates (computed via `stopDates` in `Step2AccommodationView` from itinerary nights), guest count, and destination from `TravelInputs`
+- `getBookingSearchUrlWithDates(name, city, checkin, checkout, adults)` generates Booking.com search URLs with per-stop check-in/checkout
+- `getGoogleSearchUrl(query)` generates safe Google Search URLs (fallback for activities, restaurants)
+- Restaurant replacements use Google Search (`${name} ${city} tripadvisor`) since TripAdvisor blocks direct search links
+- Car route ("Auto privata") replacements use Google Maps directions URLs
 - All replacements are functional search URLs, not dead links
