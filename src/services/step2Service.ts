@@ -390,12 +390,30 @@ SOLO JSON, zero markdown.`;
 
 async function searchFlights(
   inputs: TravelInputs,
-  apiKey: string
+  apiKey: string,
+  stops?: Stop[]
 ): Promise<FlightSegment[]> {
   const totalPeople = inputs.people.adults + inputs.people.children.length;
   const flightPref = inputs.flightPreference || "Volo diretto";
   const departure = `${inputs.departureCity}${inputs.departureCountry ? ` (${inputs.departureCountry})` : ""}`;
   const destination = `${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}`;
+
+  // Build stop list for car/trip routes
+  const isCarRoute = flightPref.toLowerCase().includes('auto');
+  const stopsList = stops && stops.length > 0 ? stops : [];
+  const stopsRoute = isCarRoute && stopsList.length > 0
+    ? [departure, ...stopsList.map(s => s.stopName), departure].join(' → ')
+    : '';
+
+  const carRouteSection = isCarRoute ? `
+IMPORTANTE — AUTOROUTE CON TAPPE REALI:
+Il viaggio in auto ha le seguenti TAPPE OBBLIGATORIE (stesse dell'itinerario):
+${stopsList.map((s, i) => `- Tappa ${i + 1}: ${s.stopName} (${s.nights} ${s.nights === 1 ? 'notte' : 'notti'})`).join('\n')}
+- Crea un segment per OGNI tratta tra tappe consecutive: ${stopsRoute}
+- Per ogni segment: "route" = "CittàA → CittàB", "distance" in km, "duration" realistico, "estimatedPrice" = benzina+pedaggi PER TUTTO IL PERCORSO (non per persona)
+- "bookingUrl" per ogni segment = \`https://www.google.com/maps/dir/CittàA/CittàB\`
+- IMPOSTA departureTime e arrivalTime a null
+- "airline" = "Auto privata" per tutti i segment` : '';
 
   const prompt = `Sei un esperto di trasporti con accesso a ricerca web. Cerca opzioni di volo/treno per questa tratta.
 
@@ -405,7 +423,7 @@ PERSONE: ${totalPeople}
 PREFERENZA TRASPORTO: ${flightPref}
 BUDGET TOTALE: €${inputs.budget}
 STOPOVER: ${inputs.stopover || "Nessuno"}
-
+${carRouteSection}
 ISTRUZIONI:
 1. Usa la ricerca web per verificare quali compagnie aeree/treno operano realmente questa tratta.
 2. Per "estimatedPrice" indica il costo PER PERSONA found online (stima realistica).
@@ -533,56 +551,60 @@ export const searchAccommodationsAndTransport = async (
       });
     }
 
+    // Search accommodations & restaurants + flights in PARALLEL
     const totalStops = stops.length;
     const accommodations: AccommodationStop[] = [];
     const bestRestaurants: RestaurantStop[] = [];
     const warnings: string[] = [];
 
-    // Search accommodations & restaurants for each stop (1 AI call per stop)
-    for (let i = 0; i < stops.length; i++) {
-      const stop = stops[i];
-      const progressPercent = 15 + Math.round((i / (totalStops + 1)) * 65); // 15-80%
+    // Build all stop search promises
+    const stopPromises = stops.map((stop, i) => {
+      const progressPercent = 15 + Math.round((i / (totalStops + 1)) * 50);
       onProgress?.(`Ricerca alloggi a ${stop.stopName}... (${i + 1}/${totalStops})`, progressPercent);
-
-      try {
-        const result = await searchStopAccommodations(
+      return searchStopAccommodations(
+        stop.stopName,
+        stop.nights,
+        inputs,
+        apiKey
+      ).catch(primaryError => {
+        console.warn(`Step 2: Primary search failed for stop "${stop.stopName}", retrying with simpler prompt...`, primaryError);
+        return searchStopAccommodationsRetry(
           stop.stopName,
           stop.nights,
           inputs,
           apiKey
-        );
-        accommodations.push(result.accommodations);
-        bestRestaurants.push(result.restaurants);
-      } catch (primaryError) {
-        console.warn(`Step 2: Primary search failed for stop "${stop.stopName}", retrying with simpler prompt...`, primaryError);
-
-        // Retry once with simpler prompt
-        try {
-          const result = await searchStopAccommodationsRetry(
-            stop.stopName,
-            stop.nights,
-            inputs,
-            apiKey
-          );
-          accommodations.push(result.accommodations);
-          bestRestaurants.push(result.restaurants);
-        } catch (retryError) {
+        ).catch(retryError => {
           console.error(`Step 2: Both searches failed for stop "${stop.stopName}", skipping.`, retryError);
           warnings.push(`Impossibile trovare alloggi per ${stop.stopName}`);
-        }
+          return null;
+        });
+      });
+    });
+
+    // Also start flight search concurrently
+    onProgress?.("Ricerca voli e trasporti in parallelo...", 65);
+    const flightPromise = searchFlights(inputs, apiKey, stops).catch(flightError => {
+      console.error("Step 2: Flight search failed, continuing without flights.", flightError);
+      warnings.push("Impossibile trovare opzioni di volo per la tratta selezionata");
+      return [] as FlightSegment[];
+    });
+
+    // Wait for all in parallel
+    onProgress?.("Attendendo risultati...", 70);
+    const [stopResults, flights] = await Promise.all([
+      Promise.allSettled(stopPromises),
+      flightPromise,
+    ]);
+
+    // Process stop results
+    for (const result of stopResults) {
+      if (result.status === 'fulfilled' && result.value) {
+        accommodations.push(result.value.accommodations);
+        bestRestaurants.push(result.value.restaurants);
       }
     }
 
-    // Search flights (1 AI call)
-    let flights: FlightSegment[] = [];
-    onProgress?.("Ricerca voli e trasporti...", 85);
-
-    try {
-      flights = await searchFlights(inputs, apiKey);
-    } catch (flightError) {
-      console.error("Step 2: Flight search failed, continuing without flights.", flightError);
-      warnings.push("Impossibile trovare opzioni di volo per la tratta selezionata");
-    }
+    onProgress?.("Ricerca completata!", 95);
 
     // Assemble result
     const result: AccommodationTransport = {

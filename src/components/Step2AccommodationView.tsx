@@ -20,6 +20,7 @@ import type { AccommodationTransport, AccommodationStop, RestaurantStop, FlightS
 import type { TravelInputs } from '../shared/contract';
 import type { ItineraryDraft } from '../shared/step1-contract';
 import { isWhitelistedUrl, getBookingSearchUrl, getBookingSearchUrlWithDates, getTripAdvisorSearchUrl, getGoogleSearchUrl, getAirlineSearchUrl } from '../lib/urlSafety';
+import { TravelMap } from './TravelMap';
 
 // ─── STAR RATING ────────────────────────────────────────────────────────────
 
@@ -342,15 +343,33 @@ function FlightCard({
   numPeople,
   isSelected,
   onSelect,
+  allStopNames,
 }: {
   flight: FlightSegment['options'][0];
   numPeople: number;
   isSelected: boolean;
   onSelect: () => void;
+  allStopNames?: string[]; // itinerary stop names for car route Google Maps
 }) {
   const isCarRoute = flight.airline?.toLowerCase() === 'auto privata';
   const routeParts = flight.route?.split(/\s*(?:->|→)\s*/) || [];
   const totalPrice = flight.estimatedPrice * numPeople;
+
+  // Build Google Maps URL for car: use real stop names, not AI route
+  const carMapsUrl = useMemo(() => {
+    if (!isCarRoute || !allStopNames || allStopNames.length === 0) {
+      // Fallback: parse route
+      if (isCarRoute && routeParts.length >= 2) {
+        return `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`;
+      }
+      return null;
+    }
+    const deptCity = allStopNames[0].split(',')[0].trim();
+    // Full route: departure → stop1 → stop2 → ... → departure
+    const waypoints = allStopNames.map(s => encodeURIComponent(s.split(',')[0].trim()));
+    const fullRoute = [encodeURIComponent(deptCity), ...waypoints, encodeURIComponent(deptCity)].join('/');
+    return `https://www.google.com/maps/dir/${fullRoute}`;
+  }, [isCarRoute, allStopNames, routeParts]);
 
   const effectiveFlightUrl = (() => {
     // Only trust AI airline URL if it's clearly the homepage (no deep paths)
@@ -489,10 +508,7 @@ function FlightCard({
       {/* Link: Google Maps for car, airline site for flights */}
       {isCarRoute ? (
         <a
-          href={(() => {
-            if (flight.bookingUrl && flight.bookingUrl.includes('google.com/maps')) return flight.bookingUrl;
-            return `https://www.google.com/maps/dir/${routeParts[0]?.trim()}/${routeParts[1]?.trim()}`;
-          })()}
+          href={carMapsUrl || `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
@@ -601,6 +617,36 @@ export default function Step2AccommodationView({
   };
 
   const numPeople = inputs.people.adults + inputs.people.children.length;
+
+  // Build stop names list for Google Maps car routes: departure + all accommodation stops
+  const allStopNames = useMemo(() => {
+    const names = [inputs.departureCity || ''];
+    for (const stop of data.accommodations) {
+      names.push(stop.stopName);
+    }
+    return names;
+  }, [inputs.departureCity, data.accommodations]);
+
+  // Build mapPoints from accommodations for the sticky map
+  const mapPoints = useMemo(() => {
+    const points: Array<{ lat: number; lng: number; label: string; type?: string }> = [];
+    for (const stop of data.accommodations) {
+      for (const opt of stop.options) {
+        if (opt.lat && opt.lng && opt.lat !== 0 && opt.lng !== 0) {
+          points.push({ lat: opt.lat, lng: opt.lng, label: opt.name, type: 'hotel' });
+        }
+      }
+    }
+    // Also include itinerary mapPoints if available
+    if (itinerary.mapPoints) {
+      for (const p of itinerary.mapPoints) {
+        if (p.lat && p.lng && p.lat !== 0 && p.lng !== 0) {
+          points.push({ lat: p.lat, lng: p.lng, label: p.label, type: (p.type as any) || 'attraction' });
+        }
+      }
+    }
+    return points;
+  }, [data.accommodations, itinerary.mapPoints]);
 
   // Calculate check-in/checkout dates per stop from itinerary + trip start date
   // Each stop maps to consecutive days in the itinerary. First stop starts on startDate,
@@ -724,6 +770,11 @@ export default function Step2AccommodationView({
           />
         </motion.div>
 
+        {/* MAIN LAYOUT: Content + Sticky Map */}
+        <div className="flex gap-8 items-start">
+          {/* LEFT: Content */}
+          <div className="flex-1 min-w-0">
+
         {/* FLIGHTS / TRANSPORT SECTION */}
         {data.flights && data.flights.length > 0 && (
           <motion.section
@@ -761,6 +812,7 @@ export default function Step2AccommodationView({
                         numPeople={numPeople}
                         isSelected={(segment.selectedIndex ?? 0) === i}
                         onSelect={readOnly ? () => {} : () => onFlightSelect(segmentIdx, i)}
+                        allStopNames={allStopNames}
                       />
                     ))}
                   </div>
@@ -887,6 +939,31 @@ export default function Step2AccommodationView({
             </div>
           </motion.section>
         )}
+
+        {/* END LEFT column */}
+          </div>
+
+          {/* RIGHT: Sticky Map */}
+          {mapPoints.length > 0 && (
+            <div className="hidden lg:block w-96 shrink-0 sticky top-8">
+              <div className="rounded-2xl overflow-hidden shadow-lg border border-brand-ink/10">
+                <TravelMap
+                  points={mapPoints as any}
+                  destination={inputs.destination}
+                />
+              </div>
+              {/* Stop name labels under map */}
+              <div className="mt-3 space-y-1">
+                {data.accommodations.map((stop, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs text-brand-ink/60">
+                    <span className="w-5 h-5 rounded-full bg-brand-accent/10 text-brand-accent flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
+                    {stop.stopName} · {stop.nights} {stop.nights === 1 ? 'notte' : 'notti'}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* BOTTOM ACTION BAR */}
         <motion.div
