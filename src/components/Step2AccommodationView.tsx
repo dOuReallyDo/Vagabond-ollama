@@ -20,7 +20,6 @@ import type { AccommodationTransport, AccommodationStop, RestaurantStop, FlightS
 import type { TravelInputs } from '../shared/contract';
 import type { ItineraryDraft } from '../shared/step1-contract';
 import { isWhitelistedUrl, getBookingSearchUrl, getBookingSearchUrlWithDates, getTripAdvisorSearchUrl, getGoogleSearchUrl, getAirlineSearchUrl } from '../lib/urlSafety';
-import { TravelMap } from './TravelMap';
 
 // ─── STAR RATING ────────────────────────────────────────────────────────────
 
@@ -490,17 +489,35 @@ function FlightCard({
         )}
       </div>
 
-      {/* Link: Google Maps for car, airline site for flights */}
+      {/* Link + embedded map for car routes, airline site for flights */}
       {isCarRoute ? (
-        <a
-          href={flight.bookingUrl || `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="text-sm font-bold text-brand-accent hover:underline flex items-center gap-1"
-        >
-          Vedi su Google Maps <ExternalLink className="w-3.5 h-3.5" />
-        </a>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-4">
+          {/* Left: car info + link */}
+          <div className="flex flex-col justify-between">
+            <a
+              href={flight.bookingUrl || `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-sm font-bold text-brand-accent hover:underline flex items-center gap-1"
+            >
+              Vedi su Google Maps <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+          {/* Right: embedded Google Maps iframe */}
+          {routeParts.length >= 2 && (
+            <div className="rounded-2xl overflow-hidden" style={{ minHeight: 320 }}>
+              <iframe
+                src={`https://maps.google.com/maps?f=d&source=s_d&saddr=${encodeURIComponent(routeParts[0].trim())}&daddr=${encodeURIComponent(routeParts[1].trim())}&hl=it&output=embed`}
+                width="100%"
+                height="100%"
+                style={{ border: 0, minHeight: 320 }}
+                loading="lazy"
+                title="Percorso Google Maps"
+              />
+            </div>
+          )}
+        </div>
       ) : effectiveFlightUrl && (
         <a
           href={effectiveFlightUrl}
@@ -602,27 +619,6 @@ export default function Step2AccommodationView({
   };
 
   const numPeople = inputs.people.adults + inputs.people.children.length;
-
-  // Build mapPoints from accommodations for the sticky map
-  const mapPoints = useMemo(() => {
-    const points: Array<{ lat: number; lng: number; label: string; type?: string }> = [];
-    for (const stop of data.accommodations) {
-      for (const opt of stop.options) {
-        if (opt.lat && opt.lng && opt.lat !== 0 && opt.lng !== 0) {
-          points.push({ lat: opt.lat, lng: opt.lng, label: opt.name, type: 'hotel' });
-        }
-      }
-    }
-    // Also include itinerary mapPoints if available
-    if (itinerary.mapPoints) {
-      for (const p of itinerary.mapPoints) {
-        if (p.lat && p.lng && p.lat !== 0 && p.lng !== 0) {
-          points.push({ lat: p.lat, lng: p.lng, label: p.label, type: (p.type as any) || 'attraction' });
-        }
-      }
-    }
-    return points;
-  }, [data.accommodations, itinerary.mapPoints]);
 
   // Calculate check-in/checkout dates per stop from itinerary + trip start date
   // Each stop maps to consecutive days in the itinerary. First stop starts on startDate,
@@ -745,11 +741,6 @@ export default function Step2AccommodationView({
             numPeople={numPeople}
           />
         </motion.div>
-
-        {/* MAIN LAYOUT: Content + Sticky Map */}
-        <div className="flex gap-8 items-start">
-          {/* LEFT: Content */}
-          <div className="flex-1 min-w-0">
 
         {/* FLIGHTS / TRANSPORT SECTION */}
         {data.flights && data.flights.length > 0 && (
@@ -914,31 +905,6 @@ export default function Step2AccommodationView({
             </div>
           </motion.section>
         )}
-
-        {/* END LEFT column */}
-          </div>
-
-          {/* RIGHT: Sticky Map */}
-          {mapPoints.length > 0 && (
-            <div className="hidden lg:block w-96 shrink-0 sticky top-8">
-              <div className="rounded-2xl overflow-hidden shadow-lg border border-brand-ink/10">
-                <TravelMap
-                  points={mapPoints as any}
-                  destination={inputs.destination}
-                />
-              </div>
-              {/* Stop name labels under map */}
-              <div className="mt-3 space-y-1">
-                {data.accommodations.map((stop, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs text-brand-ink/60">
-                    <span className="w-5 h-5 rounded-full bg-brand-accent/10 text-brand-accent flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
-                    {stop.stopName} · {stop.nights} {stop.nights === 1 ? 'notte' : 'notti'}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* BOTTOM ACTION BAR */}
         <motion.div
