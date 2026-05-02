@@ -3559,6 +3559,12 @@ export default function App() {
         <div className="min-h-screen bg-brand-paper">
           <div className="max-w-7xl mx-auto px-6 py-8">
             <div className="flex items-center justify-between">
+              <button
+                onClick={resetV2Flow}
+                className="flex items-center gap-2 text-sm text-brand-ink/70 hover:text-brand-ink transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-ink/5"
+              >
+                <ArrowRight className="rotate-180 w-4 h-4" /> Nuova ricerca
+              </button>
               <StepIndicatorComponent
                 activeStep={activeStep}
                 step1Completed={step1Confirmed}
@@ -3580,11 +3586,17 @@ export default function App() {
               data={step1Data}
               inputs={lastInputs!}
               isLoading={loading}
-              onConfirm={(step1Confirmed || viewingSavedTrip) ? undefined : confirmItinerary}
-              onModify={(step1Confirmed || viewingSavedTrip) ? undefined : handleModifyItinerary}
+              onConfirm={step1Confirmed ? undefined : confirmItinerary}
+              onModify={step1Confirmed ? undefined : handleModifyItinerary}
               unsplashImages={unsplashImages}
               readOnly={step1Confirmed || viewingSavedTrip}
-              onNavigateNext={(step1Confirmed || viewingSavedTrip) ? () => setActiveStep(2) : undefined}
+              onNavigateNext={() => {
+                setActiveStep(2);
+                // If Step 2 has no data yet, start the accommodation search automatically
+                if (!step2Data && step1Data && lastInputs) {
+                  confirmItinerary();
+                }
+              }}
             />
           )}
           {/* Step 1 confirmed & waiting for Step 2 to load — transient placeholder (creation mode only, next step not ready) */}
@@ -3603,12 +3615,22 @@ export default function App() {
               itinerary={step1Data!}
               isLoading={loading}
               loadingProgress={step2LoadingProgress}
-              onConfirm={(step2Confirmed || viewingSavedTrip) ? () => {} : confirmAccommodations}
+              onConfirm={viewingSavedTrip ? () => {} : confirmAccommodations}
               onBack={viewingSavedTrip ? () => setActiveStep(1) : () => { setActiveStep(1); setStep2Confirmed(false); }}
-              onAccommodationSelect={handleAccommodationSelect}
-              onFlightSelect={handleFlightSelect}
-              readOnly={step2Confirmed || viewingSavedTrip}
-              onNavigateNext={(step2Confirmed || viewingSavedTrip) ? () => setActiveStep(3) : undefined}
+              onAccommodationSelect={viewingSavedTrip ? () => {} : handleAccommodationSelect}
+              onFlightSelect={viewingSavedTrip ? () => {} : handleFlightSelect}
+              readOnly={viewingSavedTrip}
+              onNavigateNext={() => {
+                setActiveStep(3);
+                // If Step 3 has no budget data yet, calculate it automatically
+                if (!step3Data && step1Data && step2Data && lastInputs) {
+                  const budget = calculateBudget(step1Data, step2Data, lastInputs);
+                  setStep3Data(budget);
+                  if (currentTripId) {
+                    saveStep(currentTripId, 3, budget, user?.id).catch(e => console.error('[Step3] Save failed:', e));
+                  }
+                }
+              }}
             />
           )}
           {/* Step 2 confirmed & waiting for Step 3 — transient placeholder (creation mode only, next step not ready) */}
@@ -3627,20 +3649,12 @@ export default function App() {
               totalPeople={lastInputs!.people.adults + lastInputs!.people.children.length}
               totalDays={Math.round((new Date(lastInputs!.endDate).getTime() - new Date(lastInputs!.startDate).getTime()) / (1000*60*60*24)) + 1}
               onSave={saveFullTrip}
-              onBack={viewingSavedTrip ? () => setActiveStep(2) : () => setActiveStep(2)}
+              onBack={viewingSavedTrip ? () => setActiveStep(2) : () => { setActiveStep(2); setStep2Confirmed(false); }}
               saveStatus={step3SaveStatus}
               readOnly={viewingSavedTrip}
             />
           )}
-          {/* Back to form button */}
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <button
-              onClick={resetV2Flow}
-              className="text-sm text-brand-ink/40 hover:text-brand-ink/70 transition-colors"
-            >
-              ← Nuovo viaggio
-            </button>
-          </div>
+          {/* No "Nuovo viaggio" button here — "Nuova ricerca" is in the top bar */}
         </div>
       )}
       {/* ─── V2 Saved Trips overlay ──────────────────────────────────────────── */}
@@ -3651,11 +3665,14 @@ export default function App() {
             setLastInputs(trip.inputs);
             setCurrentTripId(trip.id);
             setStep1Data(trip.step1_data);
-            setStep1Confirmed(trip.step1_completed);
+            setStep1Confirmed(!!trip.step1_data); // confirmed if data exists
             setStep2Data(trip.step2_data);
-            setStep2Confirmed(trip.step2_completed);
+            setStep2Confirmed(!!trip.step2_data && trip.step2_completed);
             setStep3Data(trip.step3_data);
             setStep3Confirmed(trip.step3_completed);
+            // For completed trips: view-only. For incomplete: continue editing.
+            const isComplete = trip.step1_completed && trip.step2_completed && trip.step3_completed;
+            setViewingSavedTrip(isComplete);
             if (!trip.step1_completed) { setActiveStep(1); }
             else if (!trip.step2_completed) { setActiveStep(2); }
             else { setActiveStep(3); }
