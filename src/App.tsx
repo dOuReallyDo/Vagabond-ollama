@@ -39,6 +39,7 @@ import { ProfileForm, type TravelerProfileForm } from './components/ProfileForm'
 import { SavedTrips } from './components/SavedTrips';
 import { SavedTripsV2 } from './components/SavedTripsV2';
 import { NoteSuggestions } from './components/NoteSuggestions';
+import { exportTripToPDF } from './lib/pdf-export';
 import 'leaflet/dist/leaflet.css';
 
 export function cn(...inputs: ClassValue[]) {
@@ -3223,6 +3224,7 @@ export default function App() {
   const [currentTripId, setCurrentTripId] = useState<string | null>(null);
   const [step2LoadingProgress, setStep2LoadingProgress] = useState('');
   const [step3SaveStatus, setStep3SaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [pdfExporting, setPdfExporting] = useState(false);
 
   // Flag: true = use 3-step flow, false = use legacy monolithic flow
   const [useV2Flow, setUseV2Flow] = useState(true);
@@ -3516,6 +3518,19 @@ export default function App() {
     setTripsVersion(v => v + 1);
   };
 
+  // ─── PDF Export ──────────────────────────────────────────────────────────
+  const handleExportPDF = async () => {
+    if (!step1Data || !step2Data || !step3Data || !lastInputs) return;
+    setPdfExporting(true);
+    try {
+      await exportTripToPDF(lastInputs, step1Data, step2Data, step3Data);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
   // ─── Step navigation: go back to a previous step ──────────────────────────
   const handleStepClick = (step: ActiveStep) => {
     if (step === 1 && step1Data) {
@@ -3601,12 +3616,24 @@ export default function App() {
                 step3Completed={step3Confirmed}
                 onStepClick={handleStepClick}
               />
-              <button
-                onClick={() => { loadTripsV2(user?.id).then(setSavedTripsV2); setShowV2SavedTrips(true); }}
-                className="text-sm text-brand-ink/50 hover:text-brand-accent transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-accent/5 flex items-center gap-1.5"
-              >
-                <MapPin className="w-4 h-4" /> I miei viaggi
-              </button>
+              <div className="flex items-center gap-2">
+                {step3Data && step1Data && step2Data && lastInputs && (
+                  <button
+                    onClick={handleExportPDF}
+                    disabled={pdfExporting}
+                    className="text-sm text-brand-ink/50 hover:text-brand-accent transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-accent/5 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {pdfExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    {pdfExporting ? 'Esportazione...' : 'PDF'}
+                  </button>
+                )}
+                <button
+                  onClick={() => { loadTripsV2(user?.id).then(setSavedTripsV2); setShowV2SavedTrips(true); }}
+                  className="text-sm text-brand-ink/50 hover:text-brand-accent transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-accent/5 flex items-center gap-1.5"
+                >
+                  <MapPin className="w-4 h-4" /> I miei viaggi
+                </button>
+              </div>
             </div>
           </div>
           {/* Step 1: Itinerary */}
