@@ -1,10 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 
 interface MapPoint {
   lat: number;
   lng: number;
   label: string;
-  type?: 'attraction' | 'hotel' | 'restaurant' | 'activity';
+  type?: 'attraction' | 'hotel' | 'restaurant' | 'activity' | 'city' | 'beach' | 'nature' | 'port' | 'museum' | 'monument' | string;
 }
 
 interface TravelMapProps {
@@ -12,11 +12,21 @@ interface TravelMapProps {
   destination: string;
 }
 
+// Default color/emoji for unknown types
+const DEFAULT_COLOR = '#5a5a40';
+const DEFAULT_EMOJI = '📍';
+
 const typeColors: Record<string, string> = {
   attraction: '#5a5a40',
   hotel: '#2563eb',
   restaurant: '#dc2626',
   activity: '#16a34a',
+  city: '#7c3aed',
+  beach: '#f59e0b',
+  nature: '#22c55e',
+  port: '#0ea5e9',
+  museum: '#8b5cf6',
+  monument: '#6b7280',
 };
 
 const typeEmoji: Record<string, string> = {
@@ -24,21 +34,30 @@ const typeEmoji: Record<string, string> = {
   hotel: '🏨',
   restaurant: '🍽️',
   activity: '🎯',
+  city: '🏙️',
+  beach: '🏖️',
+  nature: '🌿',
+  port: '⚓',
+  museum: '🎨',
+  monument: '🗿',
 };
 
 export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
 
+  // Compute valid points outside useEffect for legend rendering
+  const validPoints = useMemo(() =>
+    points.filter(
+      (p) => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)
+    ),
+    [points]
+  );
+
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
 
     let isCancelled = false;
-
-    // Filtra punti con coordinate valide
-    const validPoints = points.filter(
-      (p) => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)
-    );
 
     if (validPoints.length === 0) return;
 
@@ -81,8 +100,8 @@ export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => 
       // Colori per tipo
       const markers: any[] = [];
       validPoints.forEach((point, idx) => {
-        const color = typeColors[point.type || 'attraction'];
-        const emoji = typeEmoji[point.type || 'attraction'];
+        const color = typeColors[point.type || 'attraction'] || DEFAULT_COLOR;
+        const emoji = typeEmoji[point.type || 'attraction'] || DEFAULT_EMOJI;
 
         const icon = L.divIcon({
           html: `
@@ -159,18 +178,37 @@ export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => 
   return (
     <div className="relative">
       <div ref={mapRef} style={{ height: '480px', width: '100%', borderRadius: '1.5rem', overflow: 'hidden' }} />
-      {/* Legenda */}
-      <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur px-4 py-3 rounded-2xl shadow-lg border border-white/50 text-xs space-y-1.5 z-[1000]">
-        {Object.entries(typeEmoji).map(([type, emoji]) => (
-          <div key={type} className="flex items-center gap-2">
-            <span
-              className="w-3 h-3 rounded-full"
-              style={{ background: typeColors[type] }}
-            />
-            <span className="capitalize text-gray-600">{emoji} {type === 'attraction' ? 'Attrazione' : type === 'hotel' ? 'Hotel' : type === 'restaurant' ? 'Ristorante' : 'Attività'}</span>
+      {/* Legenda — only show types that are present in the data */}
+      {(() => {
+        const usedTypes = new Set(validPoints.map(p => p.type || 'attraction'));
+        const legendTypes = [
+          ['attraction', 'Attrazione'],
+          ['city', 'Città'],
+          ['hotel', 'Hotel'],
+          ['restaurant', 'Ristorante'],
+          ['activity', 'Attività'],
+          ['beach', 'Spiaggia'],
+          ['nature', 'Natura'],
+          ['port', 'Porto'],
+          ['museum', 'Museo'],
+          ['monument', 'Monumento'],
+        ] as const;
+        const visibleTypes = legendTypes.filter(([type]) => usedTypes.has(type));
+        if (visibleTypes.length <= 1) return null; // Don't show legend for single type
+        return (
+          <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur px-4 py-3 rounded-2xl shadow-lg border border-white/50 text-xs space-y-1.5 z-[1000]">
+            {visibleTypes.map(([type, label]) => (
+              <div key={type} className="flex items-center gap-2">
+                <span
+                  className="w-3 h-3 rounded-full"
+                  style={{ background: typeColors[type] || DEFAULT_COLOR }}
+                />
+                <span className="capitalize text-gray-600">{typeEmoji[type] || DEFAULT_EMOJI} {label}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        );
+      })()}
     </div>
   );
 };

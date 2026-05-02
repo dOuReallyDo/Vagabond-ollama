@@ -159,48 +159,82 @@ export async function geocodeItinerary(
 ): Promise<any> {
   const countryCode = detectCountryCode(destination);
 
-  // 1. Geocode mapPoints
+  // 1. Geocode mapPoints — use only the label (city/place name, not descriptive text)
   if (data.mapPoints && Array.isArray(data.mapPoints)) {
-    const geocodePromises = data.mapPoints.map(async (point: any) => {
-      if (!point.label) return;
-      const result = await geocodePlace(point.label, countryCode);
+    // Batch geocode unique labels to respect rate limit
+    const allLabels: string[] = (data.mapPoints as any[]).map((p: any) => p.label as string).filter(Boolean);
+    const uniqueLabels = Array.from(new Set(allLabels));
+    const labelCoords = new Map<string, { lat: number; lng: number }>();
+
+    for (const label of uniqueLabels) {
+      // Extract just the place name: take first part before comma/paren/dash
+      const placeName = label.split(/[,(\\-–—]/)[0].trim();
+      const result = await geocodePlace(placeName, countryCode);
       if (result) {
-        point.lat = result.lat;
-        point.lng = result.lng;
+        labelCoords.set(label, result);
+      }
+    }
+
+    // Apply coordinates
+    for (const point of data.mapPoints) {
+      if (!point.label) continue;
+      const coords = labelCoords.get(point.label);
+      if (coords) {
+        point.lat = coords.lat;
+        point.lng = coords.lng;
       }
       // If Nominatim fails, keep AI-provided coords (they're our fallback)
-    });
-
-    await Promise.all(geocodePromises);
+    }
   }
 
   // 2. Geocode attraction points in destinationOverview
+  //    Strategy: try attraction name alone first, then with destination as fallback
   if (data.destinationOverview?.attractions && Array.isArray(data.destinationOverview.attractions)) {
     for (const attraction of data.destinationOverview.attractions) {
       if (!attraction.name) continue;
-      // For attractions, try "name + destination" for better accuracy
-      const searchName = `${attraction.name}, ${destination.split(',')[0]}`;
-      const result = await geocodePlace(searchName, countryCode);
+      // Try just the attraction name first (more specific = better match)
+      const result = await geocodePlace(attraction.name, countryCode);
       if (result) {
         attraction.lat = result.lat;
         attraction.lng = result.lng;
+        continue;
+      }
+      // Fallback: name + destination city
+      const searchName = `${attraction.name}, ${destination.split(',')[0]}`;
+      const result2 = await geocodePlace(searchName, countryCode);
+      if (result2) {
+        attraction.lat = result2.lat;
+        attraction.lng = result2.lng;
       }
     }
   }
 
-  // 3. Geocode activity locations in itinerary days
+  // 3. Geocode activity locations — use only the location field (city name),
+  //    NOT the activity name (which is descriptive like "Escursione a Sormiou")
   if (data.itinerary && Array.isArray(data.itinerary)) {
     for (const day of data.itinerary) {
       if (!day.activities) continue;
       for (const activity of day.activities) {
-        // Only geocode if activity has a name (not generic like "check-in")
-        if (!activity.name || !activity.location) continue;
-        // Skip generic activities
-        const genericNames = ['pernottamento', 'check-in', 'check-out', 'colazione', 'check in', 'check out', 'relax', 'arrivo', 'partenza', 'riposo'];
-        if (genericNames.some(g => activity.name.toLowerCase().includes(g))) continue;
+        // Only geocode using the location field (city name), not the activity name
+        if (!activity.location) continue;
+        // Skip generic locations
+        const genericLocations = ['casa', 'hotel', 'albergo', 'b&b', 'hostel'];
+        if (genericLocations.some(g => activity.location.toLowerCase().includes(g))) continue;
 
-        const searchName = `${activity.name}, ${activity.location}`;
-        const result = await geocodePlace(searchName, countryCode);
+        // Extract just the city name from location (e.g. "Marsiglia, Provenza" → "Marsiglia")
+        const cityName = activity.location.split(/[,\-–—(]/)[0].trim();
+
+        // Don't re-geocode the same city multiple times — use a cache check
+        const cacheKey = `activity:${cityName}`;
+        const existing = geocodeCache.get(`${cityName.toLowerCase()}|${countryCode || ''}`);
+        if (existing) {
+          activity.lat = existing.lat;
+          activity.lng = existing.lng;
+          continue;
+        }
+
+        // Try geocoding the city
+        const result = await geocodePlace(cityName, countryCode);
         if (result) {
           activity.lat = result.lat;
           activity.lng = result.lng;
