@@ -26,12 +26,14 @@ Vagabond-ollama agisce come un **Concierge Digitale** progressivo. Non si limita
 - **Distribuzione tappe intelligente**: Max N/2 tappe per viaggio di N giorni, città principali 2-3 notti
 - **Selezione utente**: In Step 2 l'utente sceglie alloggio e trasporto per ogni tappa — solo i selezionati vanno nel budget
 - **Timeline visiva**: Le tappe sono visibili in sequenza (es. "Milano → Lisbona (3gg) → Porto → Milano")
-- **Mappa interattiva**: Leaflet/OpenStreetMap con marker mostrata nell'itinerario (Step 1) e sticky in Step 2 (2-col layout, hotel + attrazioni)
-- **Mappa sticky Step 2**: TravelMap fissa a destra (lg+), mostra marker hotel da alloggi + attrazioni itinerario, etichette tappe sotto la mappa
+- **Mappa interattiva**: Leaflet/OpenStreetMap con marker mostrata nell'itinerario (Step 1). TravelMap rimosso da Step 2 (layout single-column)
+- **Google Maps iframe per auto**: Ogni segmento auto in FlightCard mostra una mappa Google Maps integrata (`https://maps.google.com/maps?f=d&source=s_d&saddr={origin}&daddr={destination}&hl=it&output=embed`)
 
 ## I Miei Viaggi — Visualizzazione Step-by-Step
 - **SavedTripsV2**: ogni viaggio salvato mostra badge di completamento per step (📋 Itinerario ✓/○, 🏨 Alloggi ✓/○, 💰 Budget ✓/○)
-- **Read-only navigation**: caricando un viaggio salvato si naviga tra gli step senza poter modificare (solo "← Indietro" / "Avanti →")
+- **Read-only navigation**: caricando un viaggio salvato completato si naviga tra gli step senza poter modificare (solo "← Indietro" / "Avanti →"). Viaggi incompleti riprendono dal primo step incompiuto. Step 2 è editabile quando si torna da Step 3 (`step2Confirmed=false`).
+- **"Nuova ricerca"**: sempre visibile nella top bar v2 per resettare e ricominciare
+- **"Avanti →" auto-inizia**: se i dati del prossimo step mancano, auto-inizia lo step
 - Preferiti in cima alla lista, eliminazione con conferma
 - La visualizzazione a step permette di rivedere itinerario, alloggi e budget come in un report interattivo
 

@@ -36,13 +36,14 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **Autenticazione**: Supabase Auth (email + Google OAuth)
 - **Viaggi Salvati**: Persistenza in 3 fasi (itinerario, alloggi, budget) su `saved_trips_v2`
 - **SavedTripsV2**: Lista viaggi salvati con badge step (📋 ✓/○, 🏨 ✓/○, 💰 ✓/○), preferiti primi, elimina con conferma
-- **Read-Only Trip Viewing**: Visualizza viaggi salvati navigando tra step senza modificare (solo "← Indietro" / "Avanti →")
+- **Read-Only Trip Viewing**: Visualizza viaggi salvati completati navigando tra step senza modificare (solo "← Indietro" / "Avanti →"). Viaggi incompleti riprendono dal primo step incompiuto.
+- **"Nuova ricerca" button**: Sempre visibile nella top bar v2 per resettare e ricominciare
 - **URL Safety**: 3-layer protection per tutti i link (whitelist + structural + Google Safe Browsing)
 - **v2 URL Safety**: `sanitizeStep1Urls()` / `sanitizeStep2Urls()` — sanificazione dedicata per il flusso 3-step
 - **Search URL reali, niente deep link AI**: Il frontend genera SEMPRE search URL (Booking.com search, Google, TripAdvisor Search) dai dati reali. I deep link AI (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) sono ignorati — causano 404
-- **Car Route Programmatically**: `generateCarSegments()` crea segmenti auto in JS puro (zero AI) — distanza, carburante+pedaggi, durata, link Google Maps per tratta. 2 opzioni: Autostrada e Senza pedaggi
+- **Car Route Programmatically**: `generateCarSegments()` crea segmenti auto in JS puro (zero AI) — distanza, carburante+pedaggi, durata, link Google Maps per tratta. 2 opzioni: Autostrada e Senza pedaggi. Google Maps iframe embedded per ogni segmento auto
 - **Per-Stop Booking Date**: Booking.com URL con check-in/checkout per ogni tappa (non date intero viaggio)
-- **Step Navigation Read-Only**: Step 1 e 2 sempre visibili quando si naviga indietro, in modalità read-only
+- **Step Navigation UX**: "Nuova ricerca" sempre visibile nella top bar, "Avanti →" auto-inizia lo step successivo se i dati mancano, Step 2 editabile quando si torna da Step 3
 - **localStorage Fallback**: Funziona anche senza login
 
 ## 🏗️ Architettura 3-Step
@@ -98,7 +99,7 @@ src/
 ├── components/
 │   ├── StepIndicator.tsx            # 3-step visual stepper
 │   ├── Step1ItineraryView.tsx       # Step 1: itinerary + TravelMap + Unsplash images + sources + confirm/modify
-│   ├── Step2AccommodationView.tsx   # Step 2: TripTimeline + selectable hotels/flights + RunningTotalBar + sticky map + car segments
+│   ├── Step2AccommodationView.tsx   # Step 2: selectable hotels/flights/car + embedded Google Maps iframes + RunningTotalBar (single-column, no TravelMap)
 │   ├── Step3BudgetView.tsx          # Step 3: 5 categorie budget + structured tables + save feedback
 │   ├── AuthForm.tsx                 # Login/Signup UI
 │   ├── ProfileForm.tsx              # Profilo viaggiatore
@@ -217,6 +218,10 @@ GLM-5.1 fabbrica deep link finti che 404. Il frontend **non li usa mai**:
 - **Deep link AI**: Mai fidarsi — il frontend genera search URL reali (`getBookingSearchUrlWithDates`, `getGoogleSearchUrl`), non usa i link diretti dell'AI che 404
 - **Vercel**: Ogni endpoint API deve avere un `api/*.ts` serverless function, non solo `server.ts`
 - **Git**: Sempre `git pull` prima di pushare — Trinity lavora sullo stesso repo
+
+## 🔮 Roadmap — Proposta
+
+- **Nominatim geocoding per TravelMap Step 1**: Usare Nominatim (OpenStreetMap) per convertire i nomi di località (`mapPoints`) in coordinate lat/lng precise, migliorando l'accuratezza dei marker. Attualmente `mapPoints` usano coordinate generate dall'AI che possono essere imprecise per città minori.
 
 ## License
 

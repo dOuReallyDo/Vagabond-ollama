@@ -87,10 +87,11 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - **Diagnostic logging**: `[Step2-Flights] Raw response length/first 300 chars` logged before parsing; errors logged on parse failure.
 - **User selection**: `selectedIndex` field on AccommodationStop and FlightSegment — user clicks to select preferred option per stop/segment
 - **Per-stop booking dates**: `stopDates` computed via `useMemo` in Step2AccommodationView, accumulating nights from `startDate` for Booking.com search URLs
-- **Sticky map**: 2-column flex layout with TravelMap sticky on right (lg+) showing hotel markers from accommodations + itinerary attractions. Stop labels under map.
+- **Single-column layout**: content flows vertically (was 2-column with sticky map, now removed for cleaner UX)
 - **TripTimeline**: horizontal stop flow at top of page (e.g. "Milano → Lisbona (3 notti) → Porto (2gg) → Milano")
 - **RunningTotalBar**: live summary of selected accommodation + transport costs
-- NOT modifiable — to change, go back to Step 1 (invalidates 2-3)
+- **Google Maps iframes for car routes**: Each car segment in FlightCard shows an embedded Google Maps iframe (`https://maps.google.com/maps?f=d&source=s_d&saddr={origin}&daddr={destination}&hl=it&output=embed`) in a 2-column grid (left: info, right: route map)
+- NOT modifiable — to change, go back to Step 1 (invalidates 2-3). However, going back from Step 3 sets `step2Confirmed=false`, allowing re-selection
 
 **Step 3 — Budget** (`src/services/step3Service.ts`):
 - **Pure JS calculation** — NO AI call
@@ -143,7 +144,7 @@ All AI calls use the OpenAI SDK with Zhipu API (`baseURL: https://open.bigmodel.
 |-----------|---------|
 | `StepIndicator.tsx` | Visual stepper: ① Itinerario → ② Alloggi & Trasporti → ③ Budget |
 | `Step1ItineraryView.tsx` | Itinerary display + TravelMap (Leaflet) + Unsplash images + "Fonti e ispirazioni" + confirm/modify. **`readOnly` prop**: hides modify/conferma, shows "Avanti →" |
-| `Step2AccommodationView.tsx` | TripTimeline + selectable hotels (officialUrl + bookingUrl) + selectable flights/car segments + sticky TravelMap (2-col layout, lg+) + RunningTotalBar + restaurants per stop. **`readOnly` prop**: selection disabled, no conferma, shows "← Indietro" + "Avanti →" |
+|| `Step2AccommodationView.tsx` | TripTimeline + selectable hotels (officialUrl + bookingUrl) + selectable flights/car segments with embedded Google Maps iframes + RunningTotalBar + restaurants per stop. Single-column layout (TravelMap removed from Step 2; still in Step 1). **`readOnly` prop**: only `viewingSavedTrip` makes Step 2 read-only, not `step2Confirmed` — going back from Step 3 allows re-selection |
 | `Step3BudgetView.tsx` | Budget breakdown (uses user selections) + save with visual feedback (saving → saved ✅). **`readOnly` prop**: no save button, shows "Visualizzazione viaggio salvato" |
 | `SavedTripsV2.tsx` | v2 saved trips list with step completion badges (📋 Itinerario ✓/○, 🏨 Alloggi ✓/○, 💰 Budget ✓/○), "Completo" badge, favorites sorted first, delete with confirm/cancel. `onLoad` restores full v2 flow state |
 
@@ -266,6 +267,7 @@ When `flightPreference` includes "auto" (e.g. "Auto privata"), car segments are 
 - `estimateRoadKm()`: 80+ European route lookup table with real distances, fallback 400km for unknown routes
 - **2 options per segment**: Autostrada (€0.15/km fuel + €0.07/km tolls) and Senza pedaggi (fuel only, +30% time)
 - Each segment has a correct Google Maps URL (`google.com/maps/dir/CityA/CityB`) stored in `bookingUrl`
+- **Embedded Google Maps iframe**: Each car segment in FlightCard shows an inline Google Maps iframe (`https://maps.google.com/maps?f=d&source=s_d&saddr={origin}&daddr={destination}&hl=it&output=embed`) with a 2-column grid layout (left: trip info, right: route map)
 - FlightCard renders dedicated layout: distance (km), travel time, fuel+tolls cost — no flight times, no "Prenota"
 - FlightCard uses `isCarRoute` check via `includes()` (not `===`) and `flight.bookingUrl` directly for Google Maps link
 - Schema: `distance: z.string().nullish()` added to `FlightSegmentSchema` in `step2-contract.ts`
@@ -273,6 +275,10 @@ When `flightPreference` includes "auto" (e.g. "Auto privata"), car segments are 
 ### Country Lookup (`getDestinationCountries`)
 
 Uses **Nominatim (OpenStreetMap) API** — free, no API key, instant (~100ms), zero token cost. In-memory cache with 30-min TTL. Debounced 900ms in App.tsx.
+
+### 🔮 Proposed: Nominatim Geocoding for Step 1 TravelMap
+
+**Not yet implemented.** Use Nominatim geocoding to convert Step 1 itinerary location names (city/country names from `mapPoints`) into precise lat/lng coordinates, improving TravelMap marker accuracy. Currently `mapPoints` rely on AI-generated coordinates which may be imprecise for smaller cities. Nominatim would provide authoritative OSM coordinates at no cost.
 
 ### Deployment
 
@@ -301,7 +307,7 @@ src/
 ├── components/
 │   ├── StepIndicator.tsx            # 3-step visual stepper
 │   ├── Step1ItineraryView.tsx       # Step 1: itinerary + TravelMap + Unsplash images + sources + confirm/modify
-│   ├── Step2AccommodationView.tsx   # Step 2: timeline + selectable hotels/flights/car + sticky TravelMap (2-col) + RunningTotalBar
+│   ├── Step2AccommodationView.tsx   # Step 2: selectable hotels/flights/car + embedded Google Maps iframes + RunningTotalBar (single-column, no TravelMap)
 │   ├── Step3BudgetView.tsx          # Step 3: budget breakdown + save feedback
 │   ├── AuthForm.tsx                 # Login/Signup UI
 │   ├── ProfileForm.tsx              # Traveler profile
@@ -350,8 +356,17 @@ Booking.com URLs use per-stop check-in/checkout dates (computed via `useMemo` in
 ### Car Route — Programmatic Generation
 When `flightPreference` includes "auto" (e.g. "Auto privata"), `generateCarSegments()` creates segments programmatically — no AI call. `estimateRoadKm()` has 80+ European route lookup table, fallback 400km. 2 options per segment: Autostrada (€0.15/km fuel + €0.07/km tolls) and Senza pedaggi (fuel only, +30% time). FlightCard uses `isCarRoute` via `includes()` and `flight.bookingUrl` directly for Google Maps. `distance` field on `FlightSegmentSchema`.
 
-### Step Navigation — Read-Only Mode
-Steps 1 and 2 are always visible when navigating back from Step 3 (read-only mode). Components always render, receiving `readOnly={step1Confirmed || viewingSavedTrip}`. "Itinerario confermato!" / "Alloggi confermati!" placeholders only show when next step data hasn't loaded yet.
+### Step Navigation — Read-Only Mode & Resuming Trips
+
+**Read-only mode** only applies when viewing a fully completed saved trip (`viewingSavedTrip=true`).
+
+**Navigation behavior:**
+- **"Nuova ricerca" button**: Always visible in v2 top bar (replaces old "Nuovo viaggio" link at bottom)
+- **Step 2 readOnly**: Changed from `step2Confirmed || viewingSavedTrip` to `viewingSavedTrip` only. Going back from Step 3 sets `step2Confirmed=false`, allowing the user to re-select accommodations without going back to Step 1.
+- **Incomplete saved trips**: Only fully completed trips (`is_complete=true`) are view-only. Incomplete trips resume from the first unfinished step: `step1Confirmed = !!trip.step1_data` (not `trip.step1_completed`), `viewingSavedTrip=false` for incomplete trips.
+- **"Avanti →" auto-starts**: When pressing "Avanti →" on Step 1, if `step2Data` is null, it auto-calls `confirmItinerary()`. Same for Step 2 → Step 3: auto-calculates budget if `step3Data` is null.
+
+Steps 1 and 2 are always rendered when navigating back from Step 3. "Itinerario confermato!" / "Alloggi confermati!" placeholders only show when next step data hasn't loaded yet.
 
 ### 3-Step Flow
 - Modification is ONLY allowed in Step 1. Modifying Step 1 invalidates Steps 2-3.
@@ -383,12 +398,14 @@ When rebasing causes conflicts, read both sides carefully. Trinity's fixes may o
 
 ### Read-Only Mode for Saved Trips
 - All 3 step components accept `readOnly?: boolean` prop
-- `viewingSavedTrip` state in App.tsx — set to `true` when loading a saved trip for viewing
-- **Steps 1 and 2 are always rendered** when navigating back from Step 3 (not hidden behind conditional). They receive `readOnly={step1Confirmed || viewingSavedTrip}`
+- `viewingSavedTrip` state in App.tsx — set to `true` only for **fully completed** saved trips
+- **Incomplete trips**: resume from first unfinished step, `viewingSavedTrip=false`, `step1Confirmed=!!trip.step1_data`
+- **Steps 1 and 2 are always rendered** when navigating back from Step 3 (not hidden behind conditional). Step 2 readOnly is `viewingSavedTrip` only (not `step2Confirmed || viewingSavedTrip`). Going back from Step 3 sets `step2Confirmed=false`
 - "Itinerario confermato!" / "Alloggi confermati!" placeholders only show when next step data hasn't loaded yet
 - When `readOnly=true`: no edit/confirm/save buttons, only "← Indietro" / "Avanti →" navigation between steps
 - Step1: hides modify/conferma, shows "Avanti →"
 - Step2: hotel/flight selection disabled, no conferma, shows "← Indietro" + "Avanti →"
 - Step3: no save, shows "Visualizzazione viaggio salvato"
 - Step indicator is clickable for navigation in readOnly mode
-- "Nuovo viaggio" button resets `viewingSavedTrip` to `false`
+- **"Nuova ricerca" button** in v2 top bar resets state (replaces old "Nuovo viaggio" link at bottom)
+- **"Avanti →" auto-starts**: pressing "Avanti →" on Step 1 auto-calls `confirmItinerary()` if step2Data is null; pressing "Avanti →" on Step 2 auto-calculates budget if step3Data is null
