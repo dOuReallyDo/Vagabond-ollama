@@ -45,8 +45,49 @@ const typeEmoji: Record<string, string> = {
 function emojiForType(t?: string): string { return typeEmoji[t || ''] || '📍'; }
 
 // Safe image add — catches URL errors gracefully
+// ─── Image pre-fetch (URL → base64 for browser pptxgenjs) ──────────────────────
+const imageCache = new Map<string, string>();
+
+async function prefetchImages(urls: string[]): Promise<void> {
+  const unique = [...new Set(urls.filter(u => u && !imageCache.has(u)))];
+  // Fetch in parallel (batches of 5 to avoid overwhelming)
+  const batchSize = 5;
+  for (let i = 0; i < unique.length; i += batchSize) {
+    const batch = unique.slice(i, i + batchSize);
+    await Promise.allSettled(batch.map(async (url) => {
+      try {
+        const resp = await fetch(url, { mode: 'cors' });
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const b64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(blob);
+        });
+        if (b64) imageCache.set(url, b64);
+      } catch { /* skip */ }
+    }));
+  }
+}
+
+function getImgData(url: string): string | null {
+  return imageCache.get(url) || null;
+}
+
 function safeImage(slide: PptxGenJS.Slide, opts: PptxGenJS.ImageProps) {
-  try { slide.addImage(opts); } catch { /* skip broken images */ }
+  // If path is a URL, convert to base64 data URI (browser pptxgenjs can't fetch URLs)
+  const resolvedOpts = { ...opts };
+  if (resolvedOpts.path && !resolvedOpts.path.startsWith('data:')) {
+    const data = getImgData(resolvedOpts.path);
+    if (data) {
+      delete (resolvedOpts as any).path;
+      resolvedOpts.data = data;
+    } else {
+      return; // image not fetched — skip silently
+    }
+  }
+  try { slide.addImage(resolvedOpts); } catch { /* skip broken images */ }
 }
 
 // ─── Slide masters ───────────────────────────────────────────────────────────
@@ -77,6 +118,15 @@ export async function exportTripToPPTX(
   const dayCount = Math.round((new Date(inputs.endDate).getTime() - new Date(inputs.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1;
   const totalPeople = inputs.people.adults + inputs.people.children.length;
   const destTitle = destinationOverview?.title || inputs.destination;
+
+  // ── Pre-fetch all images → base64 (browser pptxgenjs needs data URIs) ───
+  const allImageUrls: string[] = [];
+  if (destinationOverview?.heroImageUrl) allImageUrls.push(destinationOverview.heroImageUrl);
+  if (itinerary) itinerary.forEach(d => (d.activities || []).forEach(a => { if (a.imageUrl) allImageUrls.push(a.imageUrl!); }));
+  if (accommodations) accommodations.forEach(s => (s.options || []).forEach(o => { if (o.imageUrl) allImageUrls.push(o.imageUrl!); }));
+  if (bestRestaurants) bestRestaurants.forEach(s => (s.options || []).forEach(r => { if (r.imageUrl) allImageUrls.push(r.imageUrl!); }));
+  imageCache.clear();
+  await prefetchImages(allImageUrls);
 
   // ── SLIDE 1: COVER ──────────────────────────────────────────────────────
   {
