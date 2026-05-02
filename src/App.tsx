@@ -39,7 +39,7 @@ import { ProfileForm, type TravelerProfileForm } from './components/ProfileForm'
 import { SavedTrips } from './components/SavedTrips';
 import { SavedTripsV2 } from './components/SavedTripsV2';
 import { NoteSuggestions } from './components/NoteSuggestions';
-import { exportTripToPDF } from './lib/pdf-export';
+import { exportTripToPPTX } from './lib/pptx-export';
 import 'leaflet/dist/leaflet.css';
 
 export function cn(...inputs: ClassValue[]) {
@@ -3523,9 +3523,9 @@ export default function App() {
     if (!step1Data || !step2Data || !step3Data || !lastInputs) return;
     setPdfExporting(true);
     try {
-      await exportTripToPDF(lastInputs, step1Data, step2Data, step3Data);
+      await exportTripToPPTX(lastInputs, step1Data, step2Data, step3Data);
     } catch (err) {
-      console.error('PDF export failed:', err);
+      console.error('PPTX export failed:', err);
     } finally {
       setPdfExporting(false);
     }
@@ -3624,7 +3624,7 @@ export default function App() {
                     className="text-sm text-brand-ink/50 hover:text-brand-accent transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-accent/5 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {pdfExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    {pdfExporting ? 'Esportazione...' : 'PDF'}
+                    {pdfExporting ? 'Esportazione...' : 'PPTX'}
                   </button>
                 )}
                 <button
