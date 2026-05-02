@@ -247,6 +247,7 @@ DETTAGLI VIAGGIO:
 - Persone: ${totalPeople} (${inputs.people.adults} adulti${inputs.people.children.length ? `, ${inputs.people.children.length} bambini` : ""})
 - Budget TOTALE: €${inputs.budget}
 - Stopover richiesto: ${inputs.stopover || "Nessuno"}
+- Numero tappe desiderate: ${inputs.preferredStops ?? "auto (max N/2)"}
 - Note: ${inputs.notes || "nessuna"}
 
 REGOLE COMPATTE PER EVITARE TRONCAMENTO:
@@ -262,7 +263,7 @@ REGOLE COMPATTE PER EVITARE TRONCAMENTO:
 - NESSUN campo tips, travelTime, transport nelle attività
 - JSON PURO: zero markdown, zero testo dopo }
 
-TAPPE: MAX N/2 tappe per viaggio di N giorni. Città principali: 2-3 notti. Non cambiare città ogni giorno.
+TAPPE: Ogni tappa ALMENO 2 notti. ${inputs.preferredStops ? `ESATTAMENTE ${inputs.preferredStops} tappe, ~${Math.floor(totalDays / inputs.preferredStops)} notti per tappa.` : `MAX N/2 tappe per viaggio di N giorni.`} Non cambiare città ogni giorno.
 
 ITINERARIO GIORNALIERO:
 ${dateList}
@@ -351,6 +352,7 @@ DETTAGLI VIAGGIO:
 - Persone: ${totalPeople} (${inputs.people.adults} adulti${inputs.people.children.length ? `, ${inputs.people.children.length} bambini` : ""})
 - Budget TOTALE: €${inputs.budget}
 - Stopover richiesto: ${inputs.stopover || "Nessuno"}
+- Numero tappe desiderate: ${inputs.preferredStops ?? "auto (max N/2)"}
 - Note: ${inputs.notes || "nessuna"}
 
 REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
@@ -361,8 +363,10 @@ REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
 - JSON: SOLO il JSON, zero markdown, niente testo dopo }.
 
 REGOLE TAPPE (OBBLIGATORIE):
-- NON cambiare città ogni giorno. Città principali: MINIMO 2-3 notti.
-- MAX N/2 tappe per viaggio di N giorni (10gg = max 5 tappe).
+- Ogni tappa deve avere ALMENO 2 notti. Cambiare città ogni giorno è faticoso e irrealistico.
+- Se "Numero tappe desiderate" è un numero, usa ESATTAMENTE quel numero di tappe, distribuendo le notti di conseguenza (se viaggio di ${totalDays} giorni e ${inputs.preferredStops ?? "N"} tappe: ~${inputs.preferredStops ? Math.floor(totalDays / inputs.preferredStops) : "N/2"} notti per tappa).
+- Se non specificato: MAX N/2 tappe per viaggio di N giorni (10gg = max 5 tappe).
+- Città principali: 2-3 notti. Base + day-trip per escursioni vicine.
 - "location" e "title" di ogni giorno = città dove si pernotta.
 
 FONTI: Includi array "sources" con blog/guide verificati via web_search.

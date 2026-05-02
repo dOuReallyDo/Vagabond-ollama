@@ -2422,6 +2422,7 @@ function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoad
     isPeriodFlexible: false,
     accommodationType: 'Hotel di charme',
     flightPreference: '',
+    preferredStops: undefined as number | undefined,
     notes: '',
   });
 
@@ -2782,6 +2783,34 @@ function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoad
                     <option value="Pomeriggio">Pomeriggio</option>
                     <option value="Sera">Sera</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Numero tappe */}
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-brand-ink/40">
+                  <MapPin className="w-3 h-3" /> Quante tappe vuoi fare?
+                  <span className="text-brand-ink/30 normal-case tracking-normal font-normal">(ogni tappa ≥ 2 notti)</span>
+                </label>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setInputs((p) => ({ ...p, preferredStops: Math.max(1, (p.preferredStops ?? 2) - 1) }))}
+                    className="w-8 h-8 rounded-full border border-brand-ink/20 flex items-center justify-center hover:bg-brand-ink/5 transition-colors"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="text-2xl font-serif w-8 text-center">{inputs.preferredStops ?? 2}</span>
+                  <button
+                    type="button"
+                    onClick={() => setInputs((p) => ({ ...p, preferredStops: Math.min(10, (p.preferredStops ?? 2) + 1) }))}
+                    className="w-8 h-8 rounded-full border border-brand-ink/20 flex items-center justify-center hover:bg-brand-ink/5 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                  <span className="text-sm text-brand-ink/40 ml-2">
+                    {inputs.preferredStops === 1 ? '1 città base' : `${inputs.preferredStops ?? 2} città`}
+                  </span>
                 </div>
               </div>
 

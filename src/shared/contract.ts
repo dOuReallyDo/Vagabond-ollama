@@ -17,6 +17,7 @@ export const TravelInputsSchema = z.object({
   isPeriodFlexible: z.boolean(),
   accommodationType: z.string(),
   stopover: z.string().optional(),
+  preferredStops: z.number().min(1).max(10).optional(),
   departureTimePreference: z.string().optional(),
   flightPreference: z.string().optional(),
   notes: z.string().optional(),
