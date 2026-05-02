@@ -28,7 +28,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **3-Step Flow**: Itinerario → Alloggi (selezionabili) → Budget con conferma progressiva
 - **Auto-retry su troncamento**: Se il JSON è troncato, ritenta con prompt più conciso
 - **Mappe Interattive**: Integrazione con Leaflet/OpenStreetMap
-- **Nominatim Geocoding**: Coordinate precise per le mappe tramite Nominatim (OpenStreetMap) — free tier, nessuna API key necessaria
+- **Nominatim Geocoding**: Coordinate precise per le mappe tramite Nominatim (OpenStreetMap) — free tier, nessuna API key necessaria. **Cache-aware**: mapPoints stripped di prefissi descrittivi italiani, activities usano campo `location`, attractions provano nome poi nome+destinazione
 - **Ricerca Real-Time**: GLM-5.1 AI con web search per prezzi reali
 - **Budget Intelligence**: Calcolo automatico basato sulle selezioni utente, 5 categorie con tabelle strutturate per categoria
 - **Profilo Viaggiatore**: Età, interessi, ritmo, mobilità — itinerari personalizzati
@@ -42,7 +42,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **URL Safety**: 3-layer protection per tutti i link (whitelist + structural + Google Safe Browsing)
 - **v2 URL Safety**: `sanitizeStep1Urls()` / `sanitizeStep2Urls()` — sanificazione dedicata per il flusso 3-step
 - **Search URL reali, niente deep link AI**: Il frontend genera SEMPRE search URL (Booking.com search, Google, TripAdvisor Search) dai dati reali. I deep link AI (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) sono ignorati — causano 404
-- **Car Route Programmatically**: `generateCarSegments()` crea segmenti auto in JS puro (zero AI) — distanza, carburante+pedaggi, durata, link Google Maps per tratta. Singola opzione con stima autostrada. Distanze per rotte non note calcolate via Nominatim geocoding. Google Maps iframe embedded per ogni segmento auto
+- **Car Route Programmatically**: `generateCarSegments()` crea segmenti auto in JS puro (zero AI) — costo carburante+pedaggi, link Google Maps per tratta. **Niente km/durata** (commit 5bac49d): mostra solo costo stimato e nota "Distanza e durata: consulta Google Maps per il percorso reale". Singola opzione con stima autostrada. Distanze per rotte non note calcolate via Nominatim geocoding. Google Maps iframe embedded per ogni segmento auto
 - **Per-Stop Booking Date**: Booking.com URL con check-in/checkout per ogni tappa (non date intero viaggio)
 - **Step Navigation UX**: "Nuova ricerca" sempre visibile nella top bar, "Avanti →" auto-inizia lo step successivo se i dati mancano, Step 2 editabile quando si torna da Step 3
 - **localStorage Fallback**: Funziona anche senza login
@@ -94,7 +94,7 @@ src/
 │   └── step3-contract.ts            # BudgetCalculation schema (nullish)
 ├── services/
 │   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + buildCompactPrompt() + auto-retry
-│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled, generateCarSegments(), Nominatim geocoding for distances)
+│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled, generateCarSegments() — car segments now pass duration: null, distance: null, no km/duration display, Nominatim geocoding for distances)
 │   ├── step3Service.ts              # calculateBudget() (pure JS, 5 categorie, tabelle strutturate, no trasporti locali)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
@@ -107,7 +107,7 @@ src/
 │   ├── ProfileForm.tsx              # Profilo viaggiatore
 │   ├── SavedTrips.tsx              # Lista viaggi salvati (legacy)
 │   ├── SavedTripsV2.tsx            # Lista viaggi salvati v2 con badge step + preferiti + elimina conferma
-│   ├── TravelMap.tsx               # Leaflet map
+│   ├── TravelMap.tsx               # Leaflet map (supports types: city, beach, nature, port, museum, monument + fallback 📍; dynamic legend)
 │   └── NoteSuggestions.tsx         # Clickable note suggestions
 ├── lib/
 │   ├── auth.tsx                     # Auth context + hooks (Supabase)
@@ -116,7 +116,7 @@ src/
 │   ├── supabase.ts                  # Supabase client (persistSession: true)
 │   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
 │   ├── safeBrowsing.ts             # Google Safe Browsing API client + cache
-│   └── nominatim.ts                # Nominatim geocoding (free, no API key) — city→coords + haversine distance
+│   └── nominatim.ts                # Nominatim geocoding (free, no API key) — cache-aware: strip prefixes, use location field, name+dest fallback; no estimateDriveDurationMinutes (removed)
 api/
 ├── config.ts                        # Vercel serverless: serves ZHIPU_API_KEY
 └── check-url.ts                     # Vercel serverless: Google Safe Browsing proxy
@@ -227,7 +227,9 @@ GLM-5.1 fabbrica deep link finti che 404. Il frontend **non li usa mai**:
 ## 🔮 Roadmap
 
 **✅ Completati:**
-- **Nominatim geocoding** — Usato per coordinate precise TravelMap Step 1 e distanze rotte auto in Step 2. Free tier, nessuna API key.
+- **Nominatim geocoding** — Usato per coordinate precise TravelMap Step 1 e distanze rotte auto in Step 2. Free tier, nessuna API key. Cache-aware: mapPoints stripped di prefissi italiani, activities usano `location`, attractions fallback name+destination. Duplicate city lookups skipped.
+- **Car route km/duration removed** — Car segments mostrano solo costo stimato e nota Google Maps. `estimateDriveDurationMinutes` rimosso, `generateCarSegments` passa `duration: null` e `distance: null`.
+- **TravelMap type support** — Tipi aggiuntivi: city, beach, nature, port, museum, monument con colori/emoji specifici. Legenda dinamica mostra solo i tipi presenti.
 
 **📋 In programma:**
 -(niente ancora)

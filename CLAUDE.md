@@ -69,7 +69,8 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - `cleanEmptyStrings()` converts AI empty strings to null before Zod validation
 - **Stop distribution rules**: Max N/2 stops for N-day trip. Major cities min 2-3 nights. Base + day-trip pattern enforced in prompt.
 - **Map**: TravelMap (Leaflet) rendered in Step1ItineraryView with mapPoints before day cards
-- **Nominatim geocoding** (`src/lib/nominatim.ts`): After Zod validation in both `generateItinerary()` and `modifyItinerary()`, resolves `mapPoints`, `attractions`, and `activities` location names to accurate OSM coordinates via Nominatim API. Falls back to AI-generated coordinates if Nominatim fails. Free tier, 1 req/sec rate limiter, in-memory cache, no API key needed.
+- **Nominatim geocoding** (`src/lib/nominatim.ts`): After Zod validation in both `generateItinerary()` and `modifyItinerary()`, resolves `mapPoints`, `attractions`, and `activities` location names to accurate OSM coordinates via Nominatim API. Falls back to AI-generated coordinates if Nominatim fails. Free tier, 1 req/sec rate limiter, in-memory cache, no API key needed. **Cache-aware geocoding logic**: mapPoints geocode using only city/place names (stripped of descriptive Italian prefixes like "Escursione a", "Visita a", etc.). Activities geocode using only the `location` field (city name), not the activity name. Attractions try name alone first, then name+destination fallback. Duplicate city lookups are skipped (cache hit).
+- **TravelMap type support** (`src/components/TravelMap.tsx`): Supports mapPoint types: city (🔵🏙️), beach (🟡🏖️), nature (🟢🌿), port (🔴⚓), museum (🟣🏛️), monument (🟠🏛️). Unknown types fall back to 📍. Legend only shows types actually present in data, not all possible types.
 - **estimatedLocalCost**: Must be per-person per-day (e.g. "€25 al giorno"), never total trip cost
 
 **Step 2 — Accommodations + Transport** (`src/services/step2Service.ts`):
@@ -266,10 +267,11 @@ Booking.com search URLs use check-in/checkout dates calculated **per stop** from
 When `flightPreference` includes "auto" (e.g. "Auto privata"), car segments are **generated programmatically** — no AI call needed:
 - `generateCarSegments()`: creates one segment per route leg (departure→stop1, stop1→stop2, ..., lastStop→departure)
 - `estimateRoadKm()`: 80+ European route lookup table with real distances, fallback 400km for unknown routes
-- **2 options per segment**: Autostrada (€0.15/km fuel + €0.07/km tolls) and Senza pedaggi (fuel only, +30% time)
+- **Programmatic car segments**: When `flightPreference` includes "auto", `generateCarSegments()` (now `async`) creates one segment per route leg (departure→stop1→stop2→...→return) with estimated distance, fuel+tolls cost, duration, per-segment Google Maps URL — **no AI call for car transport**. **Single option per segment**: Autostrada (€0.15/km fuel + €0.07/km tolls) — 'senza pedaggi' option removed. `estimateRoadKmWithGeocode()` uses 80+ European route lookup table first, then Nominatim geocoding + haversine fallback (replaces fixed 400km fallback). `estimateDriveDurationMinutes()` uses realistic speed by distance (<100km: 60km/h, 100–400km: 90km/h, >400km: 100km/h). FlightCard uses `flight.bookingUrl` directly for Google Maps link.
+- **Car route segments no longer show km/duration** (commit 5bac49d): Car segments display only estimated cost (fuel + tolls) and a note "Distanza e durata: consulta Google Maps per il percorso reale". The `estimateDriveDurationMinutes` function has been removed. `generateCarSegments` now passes `duration: null` and `distance: null` instead of computed values.
 - Each segment has a correct Google Maps URL (`google.com/maps/dir/CityA/CityB`) stored in `bookingUrl`
 - **Embedded Google Maps iframe**: Each car segment in FlightCard shows an inline Google Maps iframe (`https://maps.google.com/maps?f=d&source=s_d&saddr={origin}&daddr={destination}&hl=it&output=embed`) with a 2-column grid layout (left: trip info, right: route map)
-- FlightCard renders dedicated layout: distance (km), travel time, fuel+tolls cost — no flight times, no "Prenota"
+- FlightCard renders dedicated layout for car routes: fuel+tolls cost + Google Maps note (no distance/duration displayed) — no flight times, no "Prenota"
 - FlightCard uses `isCarRoute` check via `includes()` (not `===`) and `flight.bookingUrl` directly for Google Maps link
 - Schema: `distance: z.string().nullish()` added to `FlightSegmentSchema` in `step2-contract.ts`
 
@@ -280,6 +282,17 @@ Uses **Nominatim (OpenStreetMap) API** — free, no API key, instant (~100ms), z
 ### Nominatim Geocoding for Step 1 TravelMap (`src/lib/nominatim.ts`)
 
 **Implemented.** After Step 1 AI generation + Zod validation, `geocodeStep1()` resolves location names from `mapPoints`, `attractions`, and `activities` to accurate OSM coordinates via Nominatim. Called in both `generateItinerary()` and `modifyItinerary()` in `step1Service.ts`. Falls back to AI-generated coordinates if Nominatim lookup fails. Also used by `estimateRoadKmWithGeocode()` in `step2Service.ts` as a fallback for distance estimation when the route lookup table has no match. Free tier: 1 req/sec, no API key, rate limiter + in-memory cache.
+
+**Cache-aware geocoding logic (commit 70df59e)**:
+- **mapPoints**: Geocode using only city/place names, stripping descriptive Italian prefixes like "Escursione a", "Visita a", "Tour a", "Giornata a", etc. Only the actual place name is sent to Nominatim.
+- **Activities**: Geocode using only the `location` field (city name), not the activity name — activity names like "Escursione in barca" are not searchable geographic locations.
+- **Attractions**: Try geocoding with `name` alone first; if that fails, fall back to `name + destination` (e.g. "Colosseo, Roma").
+- **Cache**: Duplicate city lookups are skipped — once a city is geocoded, subsequent lookups return cached coordinates instantly.
+
+**TravelMap type support (commit 70df59e)**:
+- `TravelMap.tsx` now supports additional mapPoint types: `city`, `beach`, `nature`, `port`, `museum`, `monument` — each with distinct colors and emojis.
+- Unknown types fall back to 📍.
+- Legend only shows types actually present in the data, not all possible types.
 
 ### Deployment
 
@@ -300,8 +313,8 @@ src/
 │   ├── step2-contract.ts            # AccommodationTransport schema (officialUrl + selectedIndex + nullish)
 │   └── step3-contract.ts            # BudgetCalculation schema (with nullish)
 ├── services/
-│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + stopover in prompt + auto-retry + Nominatim geocoding post-validation
-│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled + async generateCarSegments() + estimateRoadKmWithGeocode() + estimateDriveDurationMinutes() + extractStops + markdown stripping + cleanEmptyStrings + safeParse + system message)
+│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + stopover in prompt + auto-retry + Nominatim geocoding post-validation (cache-aware: mapPoints strip prefixes, activities use location field, attractions name→name+destination fallback)
+│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled + async generateCarSegments() + estimateRoadKmWithGeocode() + extractStops + markdown stripping + cleanEmptyStrings + safeParse + system message) — car segments now pass duration: null, distance: null (no km/duration display)
 │   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, 5 categories: Trasporti/Alloggi/Attività/Cibo/Extra e Imprevisti, category-specific tables)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
@@ -314,7 +327,7 @@ src/
 │   ├── ProfileForm.tsx              # Traveler profile
 │   ├── SavedTrips.tsx              # Saved trips list (legacy)
 │   ├── SavedTripsV2.tsx            # v2 saved trips list with step badges + favorites + delete confirm + onLoadTripV2
-│   ├── TravelMap.tsx               # Leaflet map
+│   ├── TravelMap.tsx               # Leaflet map (supports types: city, beach, nature, port, museum, monument + fallback 📍; legend only shows types present in data)
 │   └── NoteSuggestions.tsx         # Clickable note suggestions
 ├── lib/
 │   ├── auth.tsx                     # AuthProvider + useAuth hook
@@ -323,7 +336,7 @@ src/
 │   ├── supabase.ts                  # Supabase client
 │   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
 │   ├── safeBrowsing.ts             # Google Safe Browsing API client
-│   └── nominatim.ts                # Nominatim geocoding (rate limiter + cache, free tier, 1 req/sec)
+│   └── nominatim.ts                # Nominatim geocoding (cache-aware: mapPoints strip prefixes, activities use location, attractions name+destination fallback; rate limiter + cache, free tier, 1 req/sec) — no estimateDriveDurationMinutes (removed)
 supabase/
 ├── schema.sql                       # DB schema (profiles, saved_trips, saved_trips_v2)
 └── migrations/
@@ -356,7 +369,7 @@ GLM-5.1 generates fake deep links (`booking.com/hotel/it/fake.html`, `tripadviso
 Booking.com URLs use per-stop check-in/checkout dates (computed via `useMemo` in `Step2AccommodationView`, accumulating nights from `startDate`), not whole-trip dates.
 
 ### Car Route — Programmatic Generation
-When `flightPreference` includes "auto" (e.g. "Auto privata"), `generateCarSegments()` (now `async`) creates segments programmatically — no AI call. `estimateRoadKmWithGeocode()` uses route lookup table first, then Nominatim+haversine fallback (replaces fixed 400km). `estimateDriveDurationMinutes()` uses realistic speed by distance (<100km: 60km/h, 100–400km: 90km/h, >400km: 100km/h). **Single option per segment**: Autostrada (€0.15/km fuel + €0.07/km tolls) — 'senza pedaggi' option removed. Single-option car routes render full-width (max-w-2xl) in FlightCard with Google Maps iframe at 400px height. FlightCard uses `isCarRoute` via `includes()` and `flight.bookingUrl` directly for Google Maps. `distance` field on `FlightSegmentSchema`.
+When `flightPreference` includes "auto" (e.g. "Auto privata"), `generateCarSegments()` (now `async`) creates segments programmatically — no AI call. `estimateRoadKmWithGeocode()` uses route lookup table first, then Nominatim+haversine fallback (replaces fixed 400km). **Single option per segment**: Autostrada (€0.15/km fuel + €0.07/km tolls) — 'senza pedaggi' option removed. **Car segments no longer show distance or duration** (commit 5bac49d): `generateCarSegments` passes `duration: null` and `distance: null`. The `estimateDriveDurationMinutes` function has been removed. Car routes display only estimated cost + note "Distanza e durata: consulta Google Maps per il percorso reale". Single-option car routes render full-width (max-w-2xl) in FlightCard with Google Maps iframe at 400px height. FlightCard uses `isCarRoute` via `includes()` and `flight.bookingUrl` directly for Google Maps. `distance` field on `FlightSegmentSchema`.
 
 ### Step Navigation — Read-Only Mode & Resuming Trips
 
