@@ -16,7 +16,7 @@ L'app usa ora un **flusso a 3 step** invece di una singola chiamata AI monolitic
 - Modifica Step 1 → Steps 2-3 invalidati e ricalcolati
 - Viaggi lunghi (14+ giorni) non si bloccano più
 - **Auto-retry**: se l'AI tronca il JSON, ritenta automaticamente con prompt compatto
-- **Distribuzione tappe**: Max N/2 tappe per viaggio di N giorni — niente cambio città ogni giorno
+- **Distribuzione tappe**: Ogni tappa ALMENO 2 notti. L'utente può scegliere quante tappe (`preferredStops`, 1-10) — l'AI usa esattamente quel numero, distribuendo le notti. Senza preferenza: max N/2 tappe per viaggio di N giorni
 - **Selezione utente**: solo gli alloggi e trasporti scelti vanno nel budget
 - **Costi realistici**: 5 categorie budget (Trasporti, Alloggi, Attività, Cibo, Extra e Imprevisti), tabelle strutturate per categoria
 
@@ -24,7 +24,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 
 ## ✨ Caratteristiche Principali
 
-- **Itinerari Dinamici**: Generazione di piani giornalieri dettagliati con distribuzione tappe intelligente (N/2 max tappe)
+- **Itinerari Dinamici**: Generazione di piani giornalieri dettagliati con distribuzione tappe intelligente — l'utente sceglie quante tappe (`preferredStops`), l'AI distribuisce le notti di conseguenza (sempre ≥2 notti per tappa)
 - **3-Step Flow**: Itinerario → Alloggi (selezionabili) → Budget con conferma progressiva
 - **Auto-retry su troncamento**: Se il JSON è troncato, ritenta con prompt più conciso
 - **Mappe Interattive**: Integrazione con Leaflet/OpenStreetMap

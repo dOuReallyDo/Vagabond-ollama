@@ -28,6 +28,7 @@ interface TravelInputs {
   accommodationType: string;   // comma-separated multi-select
   flightPreference?: string;  // "Volo diretto" | "Volo economico" | "Treno" | "Auto privata"
   stopover?: string;           // città di scalo
+  preferredStops?: number;     // 1-10, numero di tappe desiderate (default: auto N/2)
   departureTimePreference?: string;
 
   // Note
