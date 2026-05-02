@@ -491,27 +491,25 @@ function FlightCard({
 
       {/* Link + embedded map for car routes, airline site for flights */}
       {isCarRoute ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-4">
-          {/* Left: car info + link */}
-          <div className="flex flex-col justify-between">
-            <a
-              href={flight.bookingUrl || `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-sm font-bold text-brand-accent hover:underline flex items-center gap-1"
-            >
-              Vedi su Google Maps <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-          {/* Right: embedded Google Maps iframe */}
+        <div className="mt-4">
+          {/* Car info + link */}
+          <a
+            href={flight.bookingUrl || `https://www.google.com/maps/dir/${routeParts.map(p => encodeURIComponent(p.trim())).join('/')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-sm font-bold text-brand-accent hover:underline flex items-center gap-1 mb-4"
+          >
+            Vedi su Google Maps <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+          {/* Embedded Google Maps — large for car routes */}
           {routeParts.length >= 2 && (
-            <div className="rounded-2xl overflow-hidden" style={{ minHeight: 320 }}>
+            <div className="rounded-2xl overflow-hidden" style={{ minHeight: 400 }}>
               <iframe
                 src={`https://maps.google.com/maps?f=d&source=s_d&saddr=${encodeURIComponent(routeParts[0].trim())}&daddr=${encodeURIComponent(routeParts[1].trim())}&hl=it&output=embed`}
                 width="100%"
                 height="100%"
-                style={{ border: 0, minHeight: 320 }}
+                style={{ border: 0, minHeight: 400 }}
                 loading="lazy"
                 title="Percorso Google Maps"
               />
@@ -761,29 +759,49 @@ export default function Step2AccommodationView({
               </div>
             </div>
             <div className="space-y-12">
-              {data.flights.map((segment, segmentIdx) => (
-                <div key={segmentIdx}>
-                  {segment.segmentName && (
-                    <h3 className="text-2xl font-serif mb-6 flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-brand-accent/10 text-brand-accent flex items-center justify-center text-sm font-bold">
-                        {segmentIdx + 1}
-                      </span>
-                      {segment.segmentName}
-                    </h3>
-                  )}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    {segment.options.map((flight, i) => (
-                      <FlightCard
-                        key={i}
-                        flight={flight}
-                        numPeople={numPeople}
-                        isSelected={(segment.selectedIndex ?? 0) === i}
-                        onSelect={readOnly ? () => {} : () => onFlightSelect(segmentIdx, i)}
-                      />
-                    ))}
+              {data.flights.map((segment, segmentIdx) => {
+                const isCarSegment = segment.options[0]?.airline?.toLowerCase().includes('auto privata');
+                const isSingleOption = segment.options.length === 1;
+
+                return (
+                  <div key={segmentIdx}>
+                    {segment.segmentName && (
+                      <h3 className="text-2xl font-serif mb-6 flex items-center gap-3">
+                        <span className="w-8 h-8 rounded-full bg-brand-accent/10 text-brand-accent flex items-center justify-center text-sm font-bold">
+                          {segmentIdx + 1}
+                        </span>
+                        {segment.segmentName}
+                      </h3>
+                    )}
+                    {/* Single-option car route: full-width card with large map */}
+                    {isSingleOption && isCarSegment ? (
+                      <div className="max-w-2xl">
+                        {segment.options.map((flight, i) => (
+                          <FlightCard
+                            key={i}
+                            flight={flight}
+                            numPeople={numPeople}
+                            isSelected={true}
+                            onSelect={() => {}}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {segment.options.map((flight, i) => (
+                          <FlightCard
+                            key={i}
+                            flight={flight}
+                            numPeople={numPeople}
+                            isSelected={(segment.selectedIndex ?? 0) === i}
+                            onSelect={readOnly ? () => {} : () => onFlightSelect(segmentIdx, i)}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </motion.section>
         )}

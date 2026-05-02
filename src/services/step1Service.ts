@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { ItineraryDraftSchema } from "../shared/step1-contract";
 import type { ItineraryDraft } from "../shared/step1-contract";
 import type { TravelInputs } from "./travelService";
+import { geocodeItinerary } from "../lib/nominatim";
 
 export type { ItineraryDraft };
 export type ProgressCallback = (step: string, progress: number) => void;
@@ -547,7 +548,20 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
       return validationResult.data;
     };
 
-    return await callAI(prompt, 1);
+    const result = await callAI(prompt, 1);
+
+    // Geocode mapPoints, attractions, and activities with Nominatim for accurate coordinates
+    onProgress?.("Verifica coordinate mappa...", 92);
+    try {
+      const destination = `${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}`;
+      await geocodeItinerary(result, destination);
+      console.log("[Step1] Nominatim geocoding completed for mapPoints/attractions/activities");
+    } catch (geoErr) {
+      console.warn("[Step1] Nominatim geocoding failed, keeping AI coordinates:", geoErr);
+      // Non-blocking: AI coords are our fallback
+    }
+
+    return result;
   } catch (error) {
     console.error("Step 1 API call failed:", error);
     throw error;
@@ -704,6 +718,15 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido con TUTTI i campi.
       throw new Error(
         "L'itinerario modificato non rispetta il formato richiesto. Riprova."
       );
+    }
+
+    // Geocode mapPoints, attractions, and activities with Nominatim
+    onProgress?.("Verifica coordinate mappa...", 92);
+    try {
+      const destination = `${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}`;
+      await geocodeItinerary(validationResult.data, destination);
+    } catch (geoErr) {
+      console.warn("[Step1] Nominatim geocoding failed on modify, keeping AI coordinates:", geoErr);
     }
 
     return validationResult.data;

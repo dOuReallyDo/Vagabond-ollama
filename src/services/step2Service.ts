@@ -178,15 +178,15 @@ function extractStops(itinerary: ItineraryDraft): Stop[] {
 // ─── Generate car route segments programmatically (no AI needed) ──────────
 
 /**
- * Estimate approximate road distance (km) between two European cities.
- * Uses haversine for straight-line, then applies a 1.3x road factor.
- * Falls back to 300km for unknown pairs.
+ * Estimate road distance (km) between two European cities.
+ * 1. Check the lookup table of real Google Maps distances
+ * 2. Fallback: use Nominatim geocoding + haversine with 1.35x road factor
  */
-function estimateRoadKm(cityA: string, cityB: string): number {
+async function estimateRoadKmWithGeocode(cityA: string, cityB: string, destination?: string): Promise<{ km: number; fromCoords: boolean }> {
   const europeanDistances: Record<string, number> = {
-    // Common Italy routes
+    // Common Italy routes (real Google Maps distances)
     'milano-roma': 570, 'roma-napoli': 230, 'milano-torino': 140, 'milano-venezia': 270,
-    'roma-firenze': 280, 'firenze-bologna': 100, 'bologna-venezia': 160,
+    'roma-firenze': 280, 'firenze-bologna': 100, 'bologna-venezia': 150,
     'milano-firenze': 300, 'roma-bari': 380,
     // Portugal
     'lisbona-porto': 310, 'porto-lisbona': 310,
@@ -217,42 +217,72 @@ function estimateRoadKm(cityA: string, cityB: string): number {
   const key1 = `${a}-${b}`;
   const key2 = `${b}-${a}`;
 
-  if (europeanDistances[key1]) return europeanDistances[key1];
-  if (europeanDistances[key2]) return europeanDistances[key2];
+  if (europeanDistances[key1]) return { km: europeanDistances[key1], fromCoords: false };
+  if (europeanDistances[key2]) return { km: europeanDistances[key2], fromCoords: false };
 
-  // Fallback: estimate by rough city "region" — default 400km
-  return 400;
+  // Fallback: Nominatim geocoding + haversine
+  try {
+    const { geocodeCities, estimateRoadKmFromCoords } = await import('../lib/nominatim');
+    const coords = await geocodeCities(cityA, cityB, destination);
+    if (coords.a && coords.b) {
+      const km = estimateRoadKmFromCoords(coords.a.lat, coords.a.lng, coords.b.lat, coords.b.lng);
+      return { km, fromCoords: true };
+    }
+  } catch (err) {
+    console.warn(`[CarSegments] Nominatim fallback failed for ${cityA}→${cityB}:`, err);
+  }
+
+  // Last resort fallback
+  return { km: 400, fromCoords: true };
 }
 
-function generateCarSegments(
+/**
+ * Estimate realistic driving time based on distance.
+ * Short routes (< 100km): ~60 km/h average (city/suburban driving)
+ * Medium routes (100-400km): ~90 km/h average (mixed highway/suburban)
+ * Long routes (> 400km): ~100 km/h average (mostly highway)
+ */
+function estimateDriveDurationMinutes(distKm: number): number {
+  let avgSpeed: number;
+  if (distKm < 100) {
+    avgSpeed = 60;
+  } else if (distKm < 400) {
+    avgSpeed = 90;
+  } else {
+    avgSpeed = 100;
+  }
+  return Math.round((distKm / avgSpeed) * 60);
+}
+
+async function generateCarSegments(
   inputs: TravelInputs,
   stops: Stop[]
-): FlightSegment[] {
+): Promise<FlightSegment[]> {
   const departureCity = inputs.departureCity || 'Casa';
-  const totalPeople = inputs.people.adults + inputs.people.children.length;
   const fuelCostPerKm = 0.15;  // €0.15/km average European fuel
   const tollCostPerKm = 0.07;  // €0.07/km average European tolls
-  const avgSpeedKmh = 80;      // average speed including stops
+
+  const destination = `${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}`;
 
   const segments: FlightSegment[] = [];
 
   // Build ordered list of cities in the trip
   const cityList = [departureCity, ...stops.map(s => s.stopName), departureCity];
 
-  // Create one segment per consecutive pair
+  // Create one segment per consecutive pair — single option (with tolls)
   for (let i = 0; i < cityList.length - 1; i++) {
     const fromCity = cityList[i];
     const toCity = cityList[i + 1];
-    const distKm = estimateRoadKm(fromCity, toCity);
+    const { km: distKm } = await estimateRoadKmWithGeocode(fromCity, toCity, destination);
     const fuelCost = Math.round(distKm * fuelCostPerKm);
     const tollCost = Math.round(distKm * tollCostPerKm);
     const totalCost = fuelCost + tollCost;
-    const hours = Math.round(distKm / avgSpeedKmh);
-    const minutes = Math.round((distKm / avgSpeedKmh - hours) * 60);
+    const durationMin = estimateDriveDurationMinutes(distKm);
+    const hours = Math.floor(durationMin / 60);
+    const minutes = durationMin % 60;
     const durationStr = hours > 0 ? `${hours}h${minutes > 0 ? ` ${minutes}min` : ''}` : `${minutes}min`;
     const googleMapsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(fromCity)}/${encodeURIComponent(toCity)}`;
 
-    // Generate 2 options: autostrada (tolls) and strade statali (no tolls, slower)
     segments.push({
       segmentName: `Auto: ${fromCity} → ${toCity}`,
       selectedIndex: 0,
@@ -266,18 +296,6 @@ function generateCarSegments(
           arrivalTime: null,
           duration: durationStr,
           distance: `${distKm.toLocaleString('it-IT')} km`,
-          bookingUrl: googleMapsUrl,
-          verified: false,
-        },
-        {
-          airline: 'Auto privata (senza pedaggi)',
-          route: `${fromCity} → ${toCity}`,
-          estimatedPrice: fuelCost, // fuel only, no tolls
-          date: inputs.startDate,
-          departureTime: null,
-          arrivalTime: null,
-          duration: `${hours > 0 ? hours + 1 : 1}h${minutes > 0 ? ` ${minutes}min` : ''}`, // ~30% slower without highways
-          distance: `${Math.round(distKm * 1.1).toLocaleString('it-IT')} km`, // slightly longer route
           bookingUrl: googleMapsUrl,
           verified: false,
         },
@@ -676,7 +694,7 @@ export const searchAccommodationsAndTransport = async (
 
     if (isCarRoute && stops.length > 0) {
       onProgress?.("Calcolo tratte auto...", 65);
-      carSegments = generateCarSegments(inputs, stops);
+      carSegments = await generateCarSegments(inputs, stops);
     }
 
     // Build all stop search promises
