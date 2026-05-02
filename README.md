@@ -28,6 +28,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **3-Step Flow**: Itinerario → Alloggi (selezionabili) → Budget con conferma progressiva
 - **Auto-retry su troncamento**: Se il JSON è troncato, ritenta con prompt più conciso
 - **Mappe Interattive**: Integrazione con Leaflet/OpenStreetMap
+- **Nominatim Geocoding**: Coordinate precise per le mappe tramite Nominatim (OpenStreetMap) — free tier, nessuna API key necessaria
 - **Ricerca Real-Time**: GLM-5.1 AI con web search per prezzi reali
 - **Budget Intelligence**: Calcolo automatico basato sulle selezioni utente, 5 categorie con tabelle strutturate per categoria
 - **Profilo Viaggiatore**: Età, interessi, ritmo, mobilità — itinerari personalizzati
@@ -41,7 +42,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **URL Safety**: 3-layer protection per tutti i link (whitelist + structural + Google Safe Browsing)
 - **v2 URL Safety**: `sanitizeStep1Urls()` / `sanitizeStep2Urls()` — sanificazione dedicata per il flusso 3-step
 - **Search URL reali, niente deep link AI**: Il frontend genera SEMPRE search URL (Booking.com search, Google, TripAdvisor Search) dai dati reali. I deep link AI (booking.com/hotel/fake, tripadvisor/Restaurant_Review-fake) sono ignorati — causano 404
-- **Car Route Programmatically**: `generateCarSegments()` crea segmenti auto in JS puro (zero AI) — distanza, carburante+pedaggi, durata, link Google Maps per tratta. 2 opzioni: Autostrada e Senza pedaggi. Google Maps iframe embedded per ogni segmento auto
+- **Car Route Programmatically**: `generateCarSegments()` crea segmenti auto in JS puro (zero AI) — distanza, carburante+pedaggi, durata, link Google Maps per tratta. Singola opzione con stima autostrada. Distanze per rotte non note calcolate via Nominatim geocoding. Google Maps iframe embedded per ogni segmento auto
 - **Per-Stop Booking Date**: Booking.com URL con check-in/checkout per ogni tappa (non date intero viaggio)
 - **Step Navigation UX**: "Nuova ricerca" sempre visibile nella top bar, "Avanti →" auto-inizia lo step successivo se i dati mancano, Step 2 editabile quando si torna da Step 3
 - **localStorage Fallback**: Funziona anche senza login
@@ -75,6 +76,7 @@ Se `finish_reason="length"` (JSON troncato), il sistema:
 | **AI** | GLM-5.1 via Zhipu API (OpenAI-compatible) con web_search |
 | **Auth & DB** | Supabase (PostgreSQL + RLS + Auth) — REST API per CRUD, JS client solo per auth |
 | **Maps** | Leaflet + OpenStreetMap |
+| **Geocoding** | Nominatim (OpenStreetMap) — free, no API key |
 | **Images** | Unsplash API (fallback picsum.photos) |
 | **Build** | Vite |
 | **Deploy** | Vercel (serverless functions per API) |
@@ -92,7 +94,7 @@ src/
 │   └── step3-contract.ts            # BudgetCalculation schema (nullish)
 ├── services/
 │   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + buildCompactPrompt() + auto-retry
-│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled, generateCarSegments(), estimateRoadKm())
+│   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled, generateCarSegments(), Nominatim geocoding for distances)
 │   ├── step3Service.ts              # calculateBudget() (pure JS, 5 categorie, tabelle strutturate, no trasporti locali)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
 │   └── unsplashService.ts           # Unsplash image search
@@ -113,7 +115,8 @@ src/
 │   ├── storage-v2.ts               # v2: 3-step save/load/invalidation (REST API + JWT)
 │   ├── supabase.ts                  # Supabase client (persistSession: true)
 │   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
-│   └── safeBrowsing.ts             # Google Safe Browsing API client + cache
+│   ├── safeBrowsing.ts             # Google Safe Browsing API client + cache
+│   └── nominatim.ts                # Nominatim geocoding (free, no API key) — city→coords + haversine distance
 api/
 ├── config.ts                        # Vercel serverless: serves ZHIPU_API_KEY
 └── check-url.ts                     # Vercel serverless: Google Safe Browsing proxy
@@ -152,6 +155,8 @@ VITE_UNSPLASH_ACCESS_KEY=your-unsplash-access-key
 | `VITE_SUPABASE_ANON_KEY` | ✅ | Chiave pubblica (RLS protegge i dati) |
 | `GOOGLE_SAFE_BROWSING_API_KEY` | ❌ | Senza: URL safety opera in whitelist-only mode |
 | `VITE_UNSPLASH_ACCESS_KEY` | ❌ | Senza: fallback a picsum.photos |
+
+> **Nota**: Nominatim geocoding non richiede variabili d'ambiente — è gratuito e senza API key.
 
 ### 3. Supabase Setup
 
@@ -219,9 +224,13 @@ GLM-5.1 fabbrica deep link finti che 404. Il frontend **non li usa mai**:
 - **Vercel**: Ogni endpoint API deve avere un `api/*.ts` serverless function, non solo `server.ts`
 - **Git**: Sempre `git pull` prima di pushare — Trinity lavora sullo stesso repo
 
-## 🔮 Roadmap — Proposta
+## 🔮 Roadmap
 
-- **Nominatim geocoding per TravelMap Step 1**: Usare Nominatim (OpenStreetMap) per convertire i nomi di località (`mapPoints`) in coordinate lat/lng precise, migliorando l'accuratezza dei marker. Attualmente `mapPoints` usano coordinate generate dall'AI che possono essere imprecise per città minori.
+**✅ Completati:**
+- **Nominatim geocoding** — Usato per coordinate precise TravelMap Step 1 e distanze rotte auto in Step 2. Free tier, nessuna API key.
+
+**📋 In programma:**
+-(niente ancora)
 
 ## License
 
