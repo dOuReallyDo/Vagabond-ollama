@@ -44,20 +44,16 @@ const typeEmoji: Record<string, string> = {
 };
 function emojiForType(t?: string): string { return typeEmoji[t || ''] || '📍'; }
 
+// Safe image add — catches URL errors gracefully
+function safeImage(slide: PptxGenJS.Slide, opts: PptxGenJS.ImageProps) {
+  try { slide.addImage(opts); } catch { /* skip broken images */ }
+}
+
 // ─── Slide masters ───────────────────────────────────────────────────────────
 function addMasters(pres: PptxGenJS) {
-  pres.defineSlideMaster({
-    title: 'COVER',
-    background: { color: C.paper },
-  });
-  pres.defineSlideMaster({
-    title: 'CONTENT',
-    background: { color: C.paper },
-  });
-  pres.defineSlideMaster({
-    title: 'SECTION',
-    background: { color: C.accent },
-  });
+  pres.defineSlideMaster({ title: 'COVER', background: { color: C.paper } });
+  pres.defineSlideMaster({ title: 'CONTENT', background: { color: C.paper } });
+  pres.defineSlideMaster({ title: 'SECTION', background: { color: C.accent } });
 }
 
 // ─── Main export function ────────────────────────────────────────────────────
@@ -85,10 +81,8 @@ export async function exportTripToPPTX(
   // ── SLIDE 1: COVER ──────────────────────────────────────────────────────
   {
     const slide = pres.addSlide({ masterName: 'COVER' });
-    // Hero image or gradient placeholder
     if (destinationOverview?.heroImageUrl) {
-      slide.addImage({ path: destinationOverview.heroImageUrl, x: 0, y: 0, w: '100%', h: '100%', sizing: { type: 'cover', w: 10, h: 5.625 } });
-      // Dark overlay for text readability
+      safeImage(slide, { path: destinationOverview.heroImageUrl, x: 0, y: 0, w: '100%', h: '100%', sizing: { type: 'cover', w: 10, h: 5.625 } });
       slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: '000000', transparency: 55 } });
     } else {
       slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: C.accent } });
@@ -97,7 +91,6 @@ export async function exportTripToPPTX(
     if (destinationOverview?.tagline) {
       slide.addText(destinationOverview.tagline, { x: 0.8, y: 3.0, w: 8.4, h: 0.6, fontSize: 18, fontFace: FONT_SERIF, color: C.white, italic: true });
     }
-    // Summary bar
     const summaryItems = [
       `📍 ${inputs.destination}${inputs.country ? ', ' + inputs.country : ''}`,
       `📅 ${fmtShortDate(inputs.startDate)} → ${fmtShortDate(inputs.endDate)}`,
@@ -112,19 +105,15 @@ export async function exportTripToPPTX(
   // ── SLIDE 2: OVERVIEW + WEATHER + SAFETY ───────────────────────────────
   {
     const slide = pres.addSlide({ masterName: 'CONTENT' });
-    // Section header
     slide.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
     slide.addText('Panoramica', { x: 0.6, y: 0.3, w: 9, h: 0.6, fontSize: 28, fontFace: FONT_SERIF, color: C.accent, bold: true });
 
     let yPos = 1.1;
-
-    // Overview description
     if (destinationOverview?.description) {
       slide.addText(destinationOverview.description, { x: 0.6, y: yPos, w: 9, h: 0.9, fontSize: 14, fontFace: FONT_SANS, color: C.ink, lineSpacingMultiple: 1.3, valign: 'top' });
       yPos += 1.0;
     }
 
-    // Weather + Safety side by side
     const leftX = 0.6, colW = 4.2, gap = 0.4;
     const rightX = leftX + colW + gap;
 
@@ -164,6 +153,12 @@ export async function exportTripToPPTX(
       const x = 0.6 + col * (colW + 0.4);
       const y = 1.1 + row * 2.0;
       slide.addShape('roundRect', { x, y, w: colW, h: 1.7, fill: { color: C.warmBg }, rectRadius: 0.1 });
+
+      // Attraction image if available
+      if (attr.sourceUrl) {
+        // Use sourceUrl as a fallback link — no direct imageUrl on attraction
+      }
+
       slide.addText(attr.name, { x: x + 0.15, y: y + 0.1, w: colW - 0.3, h: 0.35, fontSize: 14, fontFace: FONT_SANS, color: C.ink, bold: true });
       const sub: any[] = [];
       if (attr.estimatedVisitTime) sub.push({ text: `⏱ ${attr.estimatedVisitTime}`, options: { fontSize: 10, color: C.inkLight, breakLine: true } });
@@ -173,11 +168,9 @@ export async function exportTripToPPTX(
 
     // Map points summary
     if (mapPoints && mapPoints.length > 0) {
-      const mapText = mapPoints.map(p => `${emojiForType(p.type)} ${p.label}`).join('   ·   ');
       const slide2 = pres.addSlide({ masterName: 'CONTENT' });
       slide2.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
       slide2.addText('📍 Tappe del viaggio', { x: 0.6, y: 0.3, w: 9, h: 0.6, fontSize: 28, fontFace: FONT_SERIF, color: C.accent, bold: true });
-      // Show map points as cards
       mapPoints.forEach((p, i) => {
         const col = i % 4;
         const row = Math.floor(i / 4);
@@ -191,59 +184,47 @@ export async function exportTripToPPTX(
     }
   }
 
-  // ── ITINERARY SLIDES (1 or 2 days per slide) ───────────────────────────
+  // ── ITINERARY SLIDES ────────────────────────────────────────────────────
   if (itinerary && itinerary.length > 0) {
-    // Section divider
     {
       const slide = pres.addSlide({ masterName: 'SECTION' });
       slide.addText('📋 Itinerario', { x: 0.8, y: 1.5, w: 8.4, h: 1.2, fontSize: 40, fontFace: FONT_SERIF, color: C.white, bold: true });
       slide.addText(`${dayCount} giorn${dayCount === 1 ? 'o' : 'i'} · ${inputs.destination}`, { x: 0.8, y: 2.7, w: 8.4, h: 0.6, fontSize: 18, fontFace: FONT_SANS, color: C.white });
     }
 
-    // Days: 1-2 per slide
-    const daysPerSlide = Math.max(1, itinerary.length <= 4 ? 2 : (itinerary.length <= 8 ? 2 : 3));
-    for (let i = 0; i < itinerary.length; i += daysPerSlide) {
-      const daysChunk = itinerary.slice(i, i + daysPerSlide);
+    for (const day of itinerary) {
+      // Each day gets its own slide with full activity details
       const slide = pres.addSlide({ masterName: 'CONTENT' });
       slide.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
+      slide.addText(`Giorno ${day.day}: ${day.title}`, { x: 0.6, y: 0.25, w: 9, h: 0.55, fontSize: 22, fontFace: FONT_SERIF, color: C.accent, bold: true });
+      if (day.theme) slide.addText(day.theme, { x: 0.6, y: 0.75, w: 9, h: 0.3, fontSize: 12, fontFace: FONT_SANS, color: C.inkLight, italic: true });
 
-      if (daysChunk.length === 1) {
-        const day = daysChunk[0];
-        slide.addText(`Giorno ${day.day}: ${day.title}`, { x: 0.6, y: 0.25, w: 9, h: 0.55, fontSize: 22, fontFace: FONT_SERIF, color: C.accent, bold: true });
-        if (day.theme) slide.addText(day.theme, { x: 0.6, y: 0.75, w: 9, h: 0.3, fontSize: 12, fontFace: FONT_SANS, color: C.inkLight, italic: true });
-        let actY = day.theme ? 1.1 : 1.0;
-        (day.activities || []).forEach((act, ai) => {
-          if (actY > 4.8) return; // overflow guard
-          // Activity card
-          slide.addShape('roundRect', { x: 0.6, y: actY, w: 8.8, h: 0.75, fill: { color: ai % 2 === 0 ? C.warmBg2 : C.white }, rectRadius: 0.08 });
-          const timeStr = act.time ? `  ${act.time}  ` : '';
-          const locStr = act.location ? ` 📍${act.location}` : '';
-          const durStr = act.duration ? ` ⏱${act.duration}` : '';
-          const costStr = act.costEstimate != null ? `  ${fmtPrice(act.costEstimate)}` : '';
-          const title = `${timeStr}${act.name || 'Attività'}${locStr}${durStr}${costStr}`;
-          slide.addText(title, { x: 0.8, y: actY + 0.02, w: 8.4, h: 0.32, fontSize: 12, fontFace: FONT_SANS, color: C.ink, bold: true });
-          if (act.description) slide.addText(act.description, { x: 0.8, y: actY + 0.32, w: 8.4, h: 0.35, fontSize: 10, fontFace: FONT_SANS, color: C.inkMuted, valign: 'top' });
-          actY += 0.82;
-        });
-      } else {
-        // 2 days side by side
-        const halfW = 4.3;
-        daysChunk.forEach((day, di) => {
-          const xBase = 0.6 + di * (halfW + 0.4);
-          slide.addText(`G${day.day}: ${day.title}`, { x: xBase, y: 0.25, w: halfW, h: 0.5, fontSize: 16, fontFace: FONT_SERIF, color: C.accent, bold: true });
-          if (day.theme) slide.addText(day.theme, { x: xBase, y: 0.7, w: halfW, h: 0.25, fontSize: 10, fontFace: FONT_SANS, color: C.inkLight, italic: true });
-          let actY = 1.0;
-          (day.activities || []).slice(0, 6).forEach((act, ai) => {
-            if (actY > 4.8) return;
-            slide.addShape('roundRect', { x: xBase, y: actY, w: halfW, h: 0.62, fill: { color: ai % 2 === 0 ? C.warmBg2 : C.white }, rectRadius: 0.06 });
-            const timeStr = act.time ? `${act.time} ` : '';
-            const costStr = act.costEstimate != null ? ` · ${fmtPrice(act.costEstimate)}` : '';
-            slide.addText(`${timeStr}${act.name || act.location || 'Attività'}${costStr}`, { x: xBase + 0.1, y: actY + 0.02, w: halfW - 0.2, h: 0.28, fontSize: 10, fontFace: FONT_SANS, bold: true, color: C.ink });
-            slide.addText(act.description || '', { x: xBase + 0.1, y: actY + 0.28, w: halfW - 0.2, h: 0.3, fontSize: 9, fontFace: FONT_SANS, color: C.inkMuted, valign: 'top' });
-            actY += 0.67;
-          });
-        });
-      }
+      let actY = day.theme ? 1.1 : 1.0;
+      (day.activities || []).forEach((act) => {
+        if (actY > 4.8) return;
+
+        // Activity card — wider if no image, narrower if image present
+        const hasImg = !!act.imageUrl;
+        const cardW = hasImg ? 7.5 : 8.8;
+        const cardX = 0.6;
+
+        // Image on the left, text on the right
+        if (hasImg) {
+          safeImage(slide, { path: act.imageUrl!, x: cardX + cardW + 0.15, y: actY, w: 1.15, h: 0.75, sizing: { type: 'cover', w: 1.15, h: 0.75 }, rounding: true });
+        }
+
+        slide.addShape('roundRect', { x: cardX, y: actY, w: cardW, h: 0.75, fill: { color: C.warmBg2 }, rectRadius: 0.08 });
+        // Accent bar
+        slide.addShape('rect', { x: cardX, y: actY, w: 0.06, h: 0.75, fill: { color: C.accent } });
+
+        const timeStr = act.time ? `${act.time} ` : '';
+        const locStr = act.location ? ` 📍${act.location}` : '';
+        const durStr = act.duration ? ` ⏱${act.duration}` : '';
+        const costStr = act.costEstimate != null ? `  ${fmtPrice(act.costEstimate)}` : '';
+        slide.addText(`${timeStr}${act.name || 'Attività'}${locStr}${durStr}${costStr}`, { x: cardX + 0.15, y: actY + 0.02, w: cardW - 0.25, h: 0.32, fontSize: 12, fontFace: FONT_SANS, color: C.ink, bold: true });
+        if (act.description) slide.addText(act.description, { x: cardX + 0.15, y: actY + 0.32, w: cardW - 0.25, h: 0.38, fontSize: 10, fontFace: FONT_SANS, color: C.inkMuted, valign: 'top' });
+        actY += 0.82;
+      });
     }
   }
 
@@ -266,18 +247,26 @@ export async function exportTripToPPTX(
         const isSelected = oi === (stop.selectedIndex ?? 0);
         const bgColor = isSelected ? C.warmBg : C.white;
         const borderColor = isSelected ? C.accent : C.sectionLine;
+
+        // Hotel image on the right
+        const hasImg = !!opt.imageUrl;
+        if (hasImg) {
+          safeImage(slide, { path: opt.imageUrl!, x: 8.2, y: y + 0.05, w: 1.2, h: 1.05, sizing: { type: 'cover', w: 1.2, h: 1.05 }, rounding: true });
+        }
+
+        const textW = hasImg ? 7.4 : 8.7;
         slide.addShape('rect', { x: 0.6, y, w: 0.06, h: 1.15, fill: { color: borderColor } });
-        slide.addShape('roundRect', { x: 0.7, y, w: 8.7, h: 1.15, fill: { color: bgColor }, rectRadius: 0.06 });
+        slide.addShape('roundRect', { x: 0.7, y, w: textW, h: 1.15, fill: { color: bgColor }, rectRadius: 0.06 });
 
         const starStr = opt.stars ? '⭐'.repeat(Math.min(opt.stars, 5)) + ' ' : '';
         const selTag = isSelected ? '  ✓ Selezionato' : '';
-        slide.addText(`${starStr}${opt.name}  (${opt.type})${selTag}`, { x: 0.9, y: y + 0.05, w: 8.3, h: 0.32, fontSize: 13, fontFace: FONT_SANS, color: C.ink, bold: isSelected });
-        if (opt.address) slide.addText(`📍 ${opt.address}`, { x: 0.9, y: y + 0.35, w: 4, h: 0.25, fontSize: 10, fontFace: FONT_SANS, color: C.inkLight });
+        slide.addText(`${starStr}${opt.name}  (${opt.type})${selTag}`, { x: 0.9, y: y + 0.05, w: textW - 0.4, h: 0.32, fontSize: 13, fontFace: FONT_SANS, color: C.ink, bold: isSelected });
+        if (opt.address) slide.addText(`📍 ${opt.address}`, { x: 0.9, y: y + 0.35, w: textW - 0.4, h: 0.25, fontSize: 10, fontFace: FONT_SANS, color: C.inkLight });
 
         const ratingStr = opt.rating ? `⭐ ${opt.rating}` : '';
         const amenStr = opt.amenities ? opt.amenities.slice(0, 4).join(' · ') : '';
-        slide.addText(`${fmtPrice(opt.estimatedPricePerNight)}/notte   ·   ${ratingStr}${amenStr ? '   ·   ' + amenStr : ''}`, { x: 0.9, y: y + 0.6, w: 8.3, h: 0.28, fontSize: 10, fontFace: FONT_SANS, color: C.inkMuted });
-        if (opt.reviewSummary) slide.addText(`"${opt.reviewSummary}"`, { x: 0.9, y: y + 0.85, w: 8.3, h: 0.25, fontSize: 10, fontFace: FONT_SANS, color: C.inkMuted, italic: true });
+        slide.addText(`${fmtPrice(opt.estimatedPricePerNight)}/notte   ·   ${ratingStr}${amenStr ? '   ·   ' + amenStr : ''}`, { x: 0.9, y: y + 0.6, w: textW - 0.4, h: 0.28, fontSize: 10, fontFace: FONT_SANS, color: C.inkMuted });
+        if (opt.reviewSummary) slide.addText(`"${opt.reviewSummary}"`, { x: 0.9, y: y + 0.85, w: textW - 0.4, h: 0.25, fontSize: 10, fontFace: FONT_SANS, color: C.inkMuted, italic: true });
 
         y += 1.25;
       });
@@ -297,7 +286,17 @@ export async function exportTripToPPTX(
       y += 0.35;
       (stop.options || []).slice(0, 3).forEach((r) => {
         if (y > 4.8) return;
-        slide.addText(`${r.name}  ·  ${r.cuisineType}${r.priceRange ? ' · ' + r.priceRange : ''}${r.rating ? ' · ⭐' + r.rating : ''}${r.mustTry ? ' · 🍽 ' + r.mustTry : ''}`, { x: 0.8, y, w: 8.6, h: 0.28, fontSize: 11, fontFace: FONT_SANS, color: C.ink });
+
+        // Restaurant image
+        const hasImg = !!r.imageUrl;
+        if (hasImg) {
+          safeImage(slide, { path: r.imageUrl!, x: 8.5, y: y - 0.05, w: 0.9, h: 0.6, sizing: { type: 'cover', w: 0.9, h: 0.6 }, rounding: true });
+        }
+
+        const ratingStr = r.rating ? ` · ⭐${r.rating}` : '';
+        const mustTryStr = r.mustTry ? ` · 🍽 ${r.mustTry}` : '';
+        const textW = hasImg ? 7.7 : 8.6;
+        slide.addText(`${r.name}  ·  ${r.cuisineType}${r.priceRange ? ' · ' + r.priceRange : ''}${ratingStr}${mustTryStr}`, { x: 0.8, y, w: textW, h: 0.28, fontSize: 11, fontFace: FONT_SANS, color: C.ink });
         y += 0.32;
       });
       y += 0.15;
@@ -329,7 +328,6 @@ export async function exportTripToPPTX(
       y += 0.1;
     });
 
-    // Local transport info
     if (transportInfo?.localTransport) {
       if (y < 4.5) {
         slide.addShape('roundRect', { x: 0.6, y, w: 8.8, h: 0.7, fill: { color: C.greenBg }, rectRadius: 0.08 });
@@ -353,7 +351,6 @@ export async function exportTripToPPTX(
     slide.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
     slide.addText('💰 Budget dettagliato', { x: 0.6, y: 0.25, w: 9, h: 0.55, fontSize: 28, fontFace: FONT_SERIF, color: C.accent, bold: true });
 
-    // Category summary cards
     const categories = [
       { label: '✈️ Trasporti', value: budgetBreakdown.flights, bg: C.greenBg },
       { label: '🏨 Alloggi', value: budgetBreakdown.accommodation, bg: C.warmBg },
@@ -370,7 +367,6 @@ export async function exportTripToPPTX(
       slide.addText(fmtPrice(cat.value), { x: x + 0.1, y: 1.35, w: cardW - 0.2, h: 0.7, fontSize: 22, fontFace: FONT_SERIF, color: C.accent, bold: true, align: 'center' });
     });
 
-    // Total card
     const totalX = 0.6 + categories.length * (cardW + 0.2);
     if (totalX + cardW <= 9.5) {
       slide.addShape('rect', { x: totalX, y: 1.0, w: cardW, h: 1.3, fill: { color: C.accent }, rectRadius: 0.1 });
@@ -386,27 +382,52 @@ export async function exportTripToPPTX(
       slide.addShape('roundRect', { x: 0.6, y: 2.8, w: 8.8, h: 0.5, fill: { color: C.amberBg }, rectRadius: 0.08 });
       slide.addText(`⚠️ ${budgetWarning}`, { x: 0.8, y: 2.85, w: 8.4, h: 0.4, fontSize: 11, fontFace: FONT_SANS, color: C.amber });
     }
+  }
 
-    // Cost detail table
-    if (costTable && costTable.length > 0) {
-      let y = 3.5;
-      costTable.forEach((cat) => {
-        if (y > 5.0) return;
-        slide.addShape('rect', { x: 0.6, y, w: 8.8, h: 0.32, fill: { color: C.warmBg } });
-        slide.addText(cat.category, { x: 0.7, y, w: 5, h: 0.32, fontSize: 11, fontFace: FONT_SANS, color: C.accent, bold: true, valign: 'middle' });
-        slide.addText(fmtPrice(cat.subtotal), { x: 7.5, y, w: 1.8, h: 0.32, fontSize: 11, fontFace: FONT_SANS, color: C.accent, bold: true, align: 'right', valign: 'middle' });
-        y += 0.35;
-        (cat.items || []).slice(0, 5).forEach((item) => {
-          if (y > 5.0) return;
-          const dateStr = item.date ? fmtShortDate(item.date) + ' ' : '';
-          const locStr = item.location ? `📍${item.location} ` : '';
-          slide.addText(`${dateStr}${locStr}${item.name}`, { x: 0.8, y, w: 6, h: 0.26, fontSize: 9, fontFace: FONT_SANS, color: C.inkMuted, valign: 'middle' });
-          slide.addText(fmtPrice(item.cost), { x: 7.5, y, w: 1.8, h: 0.26, fontSize: 9, fontFace: FONT_SANS, color: C.ink, align: 'right', valign: 'middle' });
-          y += 0.27;
-        });
-        y += 0.1;
+  // ── BUDGET DETAIL TABLES (one slide per category, all items) ─────────────
+  if (costTable && costTable.length > 0) {
+    let currentSlide: PptxGenJS.Slide | null = null;
+    let y = 0.3;
+
+    costTable.forEach((cat, catIdx) => {
+      const items = cat.items || [];
+      // Estimate height needed: header + all items
+      const neededHeight = 0.35 + items.length * 0.27 + 0.2;
+      const needsNewSlide = !currentSlide || (y + neededHeight > 5.0);
+
+      if (needsNewSlide) {
+        currentSlide = pres.addSlide({ masterName: 'CONTENT' });
+        currentSlide.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
+        currentSlide.addText('💰 Dettaglio costi', { x: 0.6, y: 0.15, w: 9, h: 0.4, fontSize: 20, fontFace: FONT_SERIF, color: C.accent, bold: true });
+        y = 0.65;
+      }
+
+      // Category header
+      currentSlide!.addShape('rect', { x: 0.6, y, w: 8.8, h: 0.32, fill: { color: C.warmBg } });
+      currentSlide!.addText(cat.category, { x: 0.7, y, w: 5, h: 0.32, fontSize: 11, fontFace: FONT_SANS, color: C.accent, bold: true, valign: 'middle' });
+      currentSlide!.addText(fmtPrice(cat.subtotal), { x: 7.5, y, w: 1.8, h: 0.32, fontSize: 11, fontFace: FONT_SANS, color: C.accent, bold: true, align: 'right', valign: 'middle' });
+      y += 0.35;
+
+      // All items (no limit)
+      items.forEach((item) => {
+        if (y > 5.0) {
+          // Overflow: new slide
+          currentSlide = pres.addSlide({ masterName: 'CONTENT' });
+          currentSlide.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
+          currentSlide.addText('💰 Dettaglio costi (cont.)', { x: 0.6, y: 0.15, w: 9, h: 0.4, fontSize: 20, fontFace: FONT_SERIF, color: C.accent, bold: true });
+          y = 0.65;
+        }
+        const dateStr = item.date ? fmtShortDate(item.date) + ' ' : '';
+        const locStr = item.location ? `📍${item.location} ` : '';
+        const descStr = item.description ? ` (${item.description})` : '';
+        const hotelStr = item.hotelName ? `🏨${item.hotelName} ` : '';
+        const nightStr = item.nights ? ` · ${item.nights} ${item.nights === 1 ? 'notte' : 'notti'}` : '';
+        currentSlide!.addText(`${dateStr}${locStr}${hotelStr}${item.name}${descStr}${nightStr}`, { x: 0.8, y, w: 6, h: 0.26, fontSize: 9, fontFace: FONT_SANS, color: C.inkMuted, valign: 'middle' });
+        currentSlide!.addText(fmtPrice(item.cost), { x: 7.5, y, w: 1.8, h: 0.26, fontSize: 9, fontFace: FONT_SANS, color: C.ink, align: 'right', valign: 'middle' });
+        y += 0.27;
       });
-    }
+      y += 0.15;
+    });
   }
 
   // ── TIPS & HIGHLIGHTS ──────────────────────────────────────────────────
@@ -442,20 +463,33 @@ export async function exportTripToPPTX(
     }
   }
 
-  // ── SOURCES ────────────────────────────────────────────────────────────
+  // ── SOURCES (with clickable links) ──────────────────────────────────────
   if (sources && sources.length > 0) {
-    const slide = pres.addSlide({ masterName: 'CONTENT' });
-    slide.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
-    slide.addText('📚 Fonti e ispirazioni', { x: 0.6, y: 0.3, w: 9, h: 0.55, fontSize: 28, fontFace: FONT_SERIF, color: C.accent, bold: true });
+    const MAX_SOURCES_PER_SLIDE = 10;
+    for (let i = 0; i < sources.length; i += MAX_SOURCES_PER_SLIDE) {
+      const chunk = sources.slice(i, i + MAX_SOURCES_PER_SLIDE);
+      const slide = pres.addSlide({ masterName: 'CONTENT' });
+      slide.addShape('rect', { x: 0, y: 0, w: '100%', h: 0.06, fill: { color: C.accent } });
+      slide.addText(i === 0 ? '📚 Fonti e ispirazioni' : '📚 Fonti e ispirazioni (cont.)', { x: 0.6, y: 0.3, w: 9, h: 0.55, fontSize: 28, fontFace: FONT_SERIF, color: C.accent, bold: true });
 
-    const srcLines = sources.slice(0, 12).map((s, i) => ({
-      text: `${s.type}: ${s.title}`,
-      options: { bullet: true, breakLine: i < Math.min(sources.length, 12) - 1, fontSize: 11, color: C.inkMuted },
-    }));
-    slide.addText(srcLines, { x: 0.6, y: 1.0, w: 8.8, h: 3.5 });
+      let srcY = 1.0;
+      chunk.forEach((s) => {
+        if (srcY > 4.8) return;
+        // Type label
+        slide.addText(`${s.type}`, { x: 0.6, y: srcY, w: 1.4, h: 0.3, fontSize: 10, fontFace: FONT_SANS, color: C.accent, bold: true, valign: 'middle' });
+        // Title as clickable link
+        const linkOpts: any = { x: 2.0, y: srcY, w: 7.4, h: 0.3, fontSize: 11, fontFace: FONT_SANS, color: C.blue };
+        if (s.url) {
+          linkOpts.hyperlink = { url: s.url, tooltip: s.url };
+        }
+        slide.addText(s.title, linkOpts);
+        srcY += 0.35;
+      });
 
-    // Footer
-    slide.addText(`Generato da Vagabond · ${fmtDate(new Date().toISOString())}`, { x: 0.6, y: 4.9, w: 8.8, h: 0.3, fontSize: 10, fontFace: FONT_SANS, color: C.inkLight, align: 'center' });
+      if (i + MAX_SOURCES_PER_SLIDE >= sources.length) {
+        slide.addText(`Generato da Vagabond · ${fmtDate(new Date().toISOString())}`, { x: 0.6, y: 4.9, w: 8.8, h: 0.3, fontSize: 10, fontFace: FONT_SANS, color: C.inkLight, align: 'center' });
+      }
+    }
   }
 
   // ── Write file ─────────────────────────────────────────────────────────
