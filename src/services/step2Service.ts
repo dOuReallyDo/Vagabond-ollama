@@ -236,24 +236,6 @@ async function estimateRoadKmWithGeocode(cityA: string, cityB: string, destinati
   return { km: 400, fromCoords: true };
 }
 
-/**
- * Estimate realistic driving time based on distance.
- * Short routes (< 100km): ~60 km/h average (city/suburban driving)
- * Medium routes (100-400km): ~90 km/h average (mixed highway/suburban)
- * Long routes (> 400km): ~100 km/h average (mostly highway)
- */
-function estimateDriveDurationMinutes(distKm: number): number {
-  let avgSpeed: number;
-  if (distKm < 100) {
-    avgSpeed = 60;
-  } else if (distKm < 400) {
-    avgSpeed = 90;
-  } else {
-    avgSpeed = 100;
-  }
-  return Math.round((distKm / avgSpeed) * 60);
-}
-
 async function generateCarSegments(
   inputs: TravelInputs,
   stops: Stop[]
@@ -261,7 +243,6 @@ async function generateCarSegments(
   const departureCity = inputs.departureCity || 'Casa';
   const fuelCostPerKm = 0.15;  // €0.15/km average European fuel
   const tollCostPerKm = 0.07;  // €0.07/km average European tolls
-
   const destination = `${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}`;
 
   const segments: FlightSegment[] = [];
@@ -277,10 +258,6 @@ async function generateCarSegments(
     const fuelCost = Math.round(distKm * fuelCostPerKm);
     const tollCost = Math.round(distKm * tollCostPerKm);
     const totalCost = fuelCost + tollCost;
-    const durationMin = estimateDriveDurationMinutes(distKm);
-    const hours = Math.floor(durationMin / 60);
-    const minutes = durationMin % 60;
-    const durationStr = hours > 0 ? `${hours}h${minutes > 0 ? ` ${minutes}min` : ''}` : `${minutes}min`;
     const googleMapsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(fromCity)}/${encodeURIComponent(toCity)}`;
 
     segments.push({
@@ -294,8 +271,8 @@ async function generateCarSegments(
           date: inputs.startDate,
           departureTime: null,
           arrivalTime: null,
-          duration: durationStr,
-          distance: `${distKm.toLocaleString('it-IT')} km`,
+          duration: null,
+          distance: null,
           bookingUrl: googleMapsUrl,
           verified: false,
         },

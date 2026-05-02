@@ -437,21 +437,13 @@ function FlightCard({
       <div className="space-y-3 py-4 border-y border-brand-ink/5 mb-4">
         {isCarRoute ? (
           <div className="space-y-3">
-            {flight.distance && (
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-brand-ink/40 uppercase font-bold">Distanza</span>
-                <span className="text-sm font-bold text-brand-ink">{flight.distance}</span>
-              </div>
-            )}
-            {flight.duration && (
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-brand-ink/40 uppercase font-bold">Tempo di percorrenza</span>
-                <span className="text-sm font-bold text-brand-ink">{flight.duration}</span>
-              </div>
-            )}
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-brand-ink/40 uppercase font-bold">Benzina + pedaggi</span>
+              <span className="text-[10px] text-brand-ink/40 uppercase font-bold">Costo stimato (benzina + pedaggi)</span>
               <span className="text-sm font-bold text-brand-accent">€{flight.estimatedPrice}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2">
+              <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <p className="text-xs text-blue-800">Distanza e durata: consulta Google Maps per il percorso reale</p>
             </div>
           </div>
         ) : (!flight.departureTime && !flight.arrivalTime) ? (
