@@ -1,5 +1,15 @@
 # Technical Architecture — Vagabond-Ollama
 
+## PPTX Export
+
+`src/lib/pptx-export.ts` uses **pptxgenjs** to generate a complete .pptx presentation of a saved trip:
+- **No DOM dependency** — generates slides programmatically (replaces failed html2pdf.js approach)
+- **Image pre-fetch**: All image URLs (hero, activities, hotels, restaurants) are fetched via `fetch()` → blob → FileReader → base64 data URI before building slides (browser pptxgenjs can't load remote `path` URLs)
+- **Slides**: Cover (hero), Overview+Weather+Safety, Attractions+Map, Itinerary (1 day/slide with images), Accommodations (hotel images), Restaurants, Transport, Budget (summary + full detail with multi-slide pagination), Tips, Sources (clickable hyperlinks)
+- **Budget detail**: ALL items shown — no slicing. Pages across slides if overflow.
+- **Sources**: clickable hyperlinks with URL tooltip, split every 10
+- Export button "PPTX" appears in v2 header when all 3 steps complete
+
 ## Required
 React SPA + Express server proxy + GLM-5.1 AI (Zhipu API) + Supabase (auth + persistence).
 
@@ -22,6 +32,7 @@ React SPA + Express server proxy + GLM-5.1 AI (Zhipu API) + Supabase (auth + per
 | **Server** | Express (dev proxy + prod static) |
 | **Maps** | Leaflet + OpenStreetMap |
 | **Deploy** | Vercel |
+| **PPTX Export** | pptxgenjs (browser-side, image pre-fetch to base64) |
 
 ## Architecture Diagram (3-Step)
 

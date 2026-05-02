@@ -284,3 +284,13 @@ All v1 TravelPlan objects and v2 ItineraryDraft/AccommodationTransport objects a
 - `getGoogleSearchUrl(query)` for Step1 activity "Scopri di più" links
 - Google Maps directions URL for car routes
 - Only search URLs are trusted: `booking.com/searchresults`, `tripadvisor.it/Search`, `google.com/search`
+
+## PPTX Export Data Usage
+
+`src/lib/pptx-export.ts` reads all 3 step data + inputs to generate a .pptx presentation:
+- **Step 1 images**: `destinationOverview.heroImageUrl` (cover), `activities[].imageUrl` (itinerary thumbnails)
+- **Step 2 images**: `accommodations[].options[].imageUrl` (hotel thumbnails), `bestRestaurants[].options[].imageUrl` (restaurant thumbnails)
+- **Step 2 selections**: `accommodations[].selectedIndex` and `flights[].selectedIndex` determine which option is highlighted as "Selezionato"
+- **Step 3 costTable**: ALL items rendered (no limit), with multi-slide overflow pagination
+- **Step 1 sources**: `sources[].url` used as clickable hyperlinks on the Sources slide
+- **Image pre-fetch**: All URLs fetched → base64 data URIs before pptxgenjs builds slides (browser can't use `path` for remote URLs)

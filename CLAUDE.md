@@ -13,6 +13,8 @@ npm test         # Run Vitest unit tests
 npm run test:watch # Run Vitest in watch mode
 ```
 
+**Key dependencies**: `openai` (AI SDK, Zhipu-compatible), `pptxgenjs` (PPTX export — installed)
+
 ## Environment Variables
 
 Create `.env` in the project root:
@@ -148,7 +150,8 @@ All AI calls use the OpenAI SDK with Zhipu API (`baseURL: https://open.bigmodel.
 | `Step1ItineraryView.tsx` | Itinerary display + TravelMap (Leaflet) + Unsplash images + "Fonti e ispirazioni" + confirm/modify. **`readOnly` prop**: hides modify/conferma, shows "Avanti →" |
 || `Step2AccommodationView.tsx` | TripTimeline + selectable hotels (officialUrl + bookingUrl) + selectable flights/car segments with embedded Google Maps iframes + RunningTotalBar + restaurants per stop. Single-column layout (TravelMap removed from Step 2; still in Step 1). **`readOnly` prop**: only `viewingSavedTrip` makes Step 2 read-only, not `step2Confirmed` — going back from Step 3 allows re-selection |
 | `Step3BudgetView.tsx` | Budget breakdown (uses user selections) + save with visual feedback (saving → saved ✅). **`readOnly` prop**: no save button, shows "Visualizzazione viaggio salvato" |
-| `SavedTripsV2.tsx` | v2 saved trips list with step completion badges (📋 Itinerario ✓/○, 🏨 Alloggi ✓/○, 💰 Budget ✓/○), "Completo" badge, favorites sorted first, delete with confirm/cancel. `onLoad` restores full v2 flow state |
+|| `SavedTripsV2.tsx` | v2 saved trips list with step completion badges (📋 Itinerario ✓/○, 🏨 Alloggi ✓/○, 💰 Budget ✓/○), "Completo" badge, favorites sorted first, delete with confirm/cancel. `onLoad` restores full v2 flow state |
+|| App.tsx (header) | "PPTX" export button in v2 header, visible when all 3 steps complete |
 
 ### Unsplash Image Integration
 
@@ -231,9 +234,32 @@ Large single-file component (~3600+ lines) managing:
 - `StepIndicator` + `Step1ItineraryView` + `Step2AccommodationView` + `Step3BudgetView`
 - `unsplashImages` state: Maps keywords → Unsplash URLs for v2 flow
 - `step3SaveStatus`: 'idle' | 'saving' | 'saved' | 'error' — visual feedback on save
+- `pdfExporting` state: loading indicator for PPTX export
+- `handleExportPDF` → `handleExportPPTX`: generates .pptx file via `src/lib/pptx-export.ts`
+- "PPTX" button in v2 header (visible when all 3 steps complete)
 - User menu (top-right): profile editor modal, saved trips modal, change password modal, logout
 - Hero image: prefers local JPEGs from `immagini/` (loaded via Vite glob import), falls back to Unsplash URLs
 - Item images: uses Unsplash API for v2 flow, AI-provided URLs + picsum fallback for legacy
+- **Saved trip load fix (May 2026)**: completed saved trips now start from Step 1 (itinerary), not Step 3 (budget)
+
+### PPTX Export (`src/lib/pptx-export.ts`)
+
+- Uses `pptxgenjs` to generate `.pptx` files directly (no DOM manipulation, no html2canvas)
+- **Pre-fetches all image URLs to base64 data URIs** before building slides — browser-side pptxgenjs cannot fetch remote URLs, so all images must be converted first
+- **Slides**:
+  - Cover (hero image)
+  - Overview + Weather + Safety
+  - Attractions + Map
+  - Itinerary (1 day per slide with activity images)
+  - Accommodations (hotel images)
+  - Restaurants (restaurant images)
+  - Transport
+  - Budget summary + detail (full cost tables, multi-slide pagination when items overflow)
+  - Tips & Highlights
+  - Sources (clickable hyperlinks)
+- **Images**: hero, activity `imageUrl`, accommodation `imageUrl`, restaurant `imageUrl` — all via `safeImage()` with base64 fallback
+- **Budget detail**: NO item limit per category — all items shown; multi-slide overflow pagination when a category's items exceed slide capacity
+- **Sources**: clickable hyperlinks with URL displayed, split across slides if >10 sources
 
 ### URL Safety Layer (`src/lib/urlSafety.ts` + `src/lib/safeBrowsing.ts` + `api/check-url.ts`)
 
@@ -336,7 +362,8 @@ src/
 │   ├── supabase.ts                  # Supabase client
 │   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
 │   ├── safeBrowsing.ts             # Google Safe Browsing API client
-│   └── nominatim.ts                # Nominatim geocoding (cache-aware: mapPoints strip prefixes, activities use location, attractions name+destination fallback; rate limiter + cache, free tier, 1 req/sec) — no estimateDriveDurationMinutes (removed)
+│   ├── nominatim.ts                # Nominatim geocoding (cache-aware: mapPoints strip prefixes, activities use location, attractions name+destination fallback; rate limiter + cache, free tier, 1 req/sec) — no estimateDriveDurationMinutes (removed)
+│   └── pptx-export.ts              # PPTX export (pptxgenjs, image pre-fetch to base64, full budget detail, clickable source links)
 supabase/
 ├── schema.sql                       # DB schema (profiles, saved_trips, saved_trips_v2)
 └── migrations/
@@ -383,6 +410,8 @@ When `flightPreference` includes "auto" (e.g. "Auto privata"), `generateCarSegme
 
 Steps 1 and 2 are always rendered when navigating back from Step 3. "Itinerario confermato!" / "Alloggi confermati!" placeholders only show when next step data hasn't loaded yet.
 
+- **Bug fix (May 2026)**: Completed saved trips now load starting from Step 1 (itinerary) instead of Step 3 (budget). The bug was in the `onLoadTripV2` handler where the else branch set `activeStep=3` for trips with step1+step2 completed (which included fully completed trips). Now: incomplete trips go to first unfinished step, completed trips go to Step 1.
+
 ### 3-Step Flow
 - Modification is ONLY allowed in Step 1. Modifying Step 1 invalidates Steps 2-3.
 - Steps 2 and 3 are confirmed, not modified.
@@ -424,3 +453,4 @@ When rebasing causes conflicts, read both sides carefully. Trinity's fixes may o
 - Step indicator is clickable for navigation in readOnly mode
 - **"Nuova ricerca" button** in v2 top bar resets state (replaces old "Nuovo viaggio" link at bottom)
 - **"Avanti →" auto-starts**: pressing "Avanti →" on Step 1 auto-calls `confirmItinerary()` if step2Data is null; pressing "Avanti →" on Step 2 auto-calculates budget if step3Data is null
+- **Bug fix (May 2026)**: Completed saved trips now load starting from Step 1 (itinerary) instead of Step 3 (budget). The bug was in the `onLoadTripV2` handler where the else branch set `activeStep=3` for trips with step1+step2 completed (which included fully completed trips). Now: incomplete trips go to first unfinished step, completed trips go to Step 1.
