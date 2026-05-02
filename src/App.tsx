@@ -3699,12 +3699,13 @@ export default function App() {
             setStep2Confirmed(!!trip.step2_data && trip.step2_completed);
             setStep3Data(trip.step3_data);
             setStep3Confirmed(trip.step3_completed);
-            // For completed trips: view-only. For incomplete: continue editing.
+            // For completed trips: view-only, start from itinerary. For incomplete: continue from first unfinished step.
             const isComplete = trip.step1_completed && trip.step2_completed && trip.step3_completed;
             setViewingSavedTrip(isComplete);
             if (!trip.step1_completed) { setActiveStep(1); }
             else if (!trip.step2_completed) { setActiveStep(2); }
-            else { setActiveStep(3); }
+            else if (!trip.step3_completed) { setActiveStep(3); }
+            else { setActiveStep(1); } // completed trip → start from itinerary
             setShowV2SavedTrips(false);
           }}
           onDelete={async (tripId) => { await deleteTripV2(tripId, user?.id); const trips = await loadTripsV2(user?.id); setSavedTripsV2(trips); }}
