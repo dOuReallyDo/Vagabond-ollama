@@ -259,7 +259,7 @@ export async function exportTripToPPTX(
 
       // Text card below the image (or at top if no image)
       const cardY = attrImgUrl ? y + imgH + 0.05 : y;
-      const cardH = attrImgUrl ? 1.0 : 1.5;
+      const cardH = attrImgUrl ? 1.4 : 1.7;
       slide.addShape('roundRect', { x, y: cardY, w: colW, h: cardH, fill: { color: C.warmBg }, rectRadius: 0.1 });
 
       slide.addText(attr.name, { x: x + 0.15, y: cardY + 0.1, w: colW - 0.3, h: 0.3, fontSize: 13, fontFace: FONT_SANS, color: C.ink, bold: true });
@@ -286,7 +286,7 @@ export async function exportTripToPPTX(
           slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.05, w: 1.9, h: 0.4, fontSize: 11, fontFace: FONT_SANS, color: C.ink, bold: true, valign: 'middle' });
           // Image below the label
           if (mpImgUrl) {
-            safeImage(slide2, { path: mpImgUrl, x, y: y + 0.55, w: 2.1, h: 0.95, sizing: { type: 'cover', w: 2.1, h: 0.95 } });
+            safeImage(slide2, { path: mpImgUrl, x, y: y + 0.55, w: 2.1, h: 1.3, sizing: { type: 'cover', w: 2.1, h: 1.3 } });
           }
         }
       });
