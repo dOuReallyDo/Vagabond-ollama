@@ -71,8 +71,9 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - `cleanEmptyStrings()` converts AI empty strings to null before Zod validation
 - **Stop distribution rules**: Max N/2 stops for N-day trip. Major cities min 2-3 nights. Base + day-trip pattern enforced in prompt. **`preferredStops`** field in `TravelInputsSchema` (1-10, optional) lets the user choose how many stops they want — when set, the AI uses ESATTAMENTE that number of stops, distributing nights accordingly (~N/stops nights per stop). When unset, falls back to N/2 rule. **Minimum 2 nights per stop is always enforced** in the prompt, regardless of `preferredStops`.
 - **Map**: TravelMap (Leaflet) rendered in Step1ItineraryView with mapPoints before day cards
-- **Nominatim geocoding** (`src/lib/nominatim.ts`): After Zod validation in both `generateItinerary()` and `modifyItinerary()`, resolves `mapPoints`, `attractions`, and `activities` location names to accurate OSM coordinates via Nominatim API. Falls back to AI-generated coordinates if Nominatim fails. Free tier, 1 req/sec rate limiter, in-memory cache, no API key needed. **Cache-aware geocoding logic**: mapPoints geocode using only city/place names (stripped of descriptive Italian prefixes like "Escursione a", "Visita a", etc.). Activities geocode using only the `location` field (city name), not the activity name. Attractions try name alone first, then name+destination fallback. Duplicate city lookups are skipped (cache hit).
-- **TravelMap type support** (`src/components/TravelMap.tsx`): Supports mapPoint types: city (🔵🏙️), beach (🟡🏖️), nature (🟢🌿), port (🔴⚓), museum (🟣🏛️), monument (🟠🏛️). Unknown types fall back to 📍. Legend only shows types actually present in data, not all possible types.
+- **Nominatim geocoding** (`src/lib/nominatim.ts`): After Zod validation in both `generateItinerary()` and `modifyItinerary()`, resolves `mapPoints`, `attractions`, and `activities` location names to accurate OSM coordinates via Nominatim API. Falls back to AI-generated coordinates if Nominatim fails. Free tier, 1 req/sec rate limiter, in-memory cache, no API key needed. **Cache-aware geocoding logic**: mapPoints geocode using only city/place names (stripped of descriptive Italian prefixes like "Escursione a", "Visita a", etc.). Activities geocode using only the `location` field (city name), not the activity name. Attractions try name alone first, then name+destination fallback. Duplicate city lookups are skipped (cache hit). **Step 4 — City extraction**: After geocoding AI-provided points, extracts unique cities from itinerary day-by-day activity locations, skips generic locations (hotel, aeroporto, pernottamento, etc.), geocodes them, and **overrides mapPoints** with type "city" in visit order. Requires >= 2 valid geocoded cities. This ensures TravelMap always shows the actual route (city stops), not random AI points.
+- **Prompt updated**: mapPoints now type "city" only, MAX 10 points, representing main stops not individual attractions. JSON example: `{ "lat": 0, "lng": 0, "label": "Città tappa", "type": "city" }`
+- **TravelMap city route view** (`src/components/TravelMap.tsx`): Shows only city-type mapPoints with numbered markers and directional arrows. **Markers**: 🛫 departure (green), numbered stops (purple), 🏠 return (red). **Polyline**: solid line connecting city points with ➤ arrow heads at midpoints. **Legend**: shows Partenza/Tappa/Ritorno/Percorso types. Zoom level 6 for route view. **Fallback**: if no city-type points exist, falls back to showing all valid points with dashed line.
 - **estimatedLocalCost**: Must be per-person per-day (e.g. "€25 al giorno"), never total trip cost
 
 **Step 2 — Accommodations + Transport** (`src/services/step2Service.ts`):
@@ -245,19 +246,23 @@ Large single-file component (~3600+ lines) managing:
 ### PPTX Export (`src/lib/pptx-export.ts`)
 
 - Uses `pptxgenjs` to generate `.pptx` files directly (no DOM manipulation, no html2canvas)
-- **Pre-fetches all image URLs to base64 data URIs** before building slides — browser-side pptxgenjs cannot fetch remote URLs, so all images must be converted first
+- **Accepts `unsplashImages` Map parameter** for Unsplash image lookups alongside AI-provided URLs
+- **`lookupUnsplash()` helper** matches keys using the same logic as App.tsx: destination + attraction name, destination + activity location+name
+- **Pre-fetches all image URLs to base64 data URIs** before building slides — browser-side pptxgenjs cannot fetch remote URLs, so all images must be converted first. Prefetch collects both Unsplash URLs and AI URLs
+- **All images rectangular**: `rounding: true` removed — all images rendered without rounded corners
 - **Slides**:
-  - Cover (hero image)
+  - Cover (hero image — Unsplash fallback when no AI `heroImageUrl`)
   - Overview + Weather + Safety
-  - Attractions + Map
-  - Itinerary (1 day per slide with activity images)
+  - Attractions + Map (attraction cards: Unsplash image above, text below; `cardH` 0.9 with image, 1.7 without)
+  - Map points: label pill at top + Unsplash image below (0.95h)
+  - Itinerary (1 day per slide with activity images — Unsplash fallback when no AI `imageUrl`; skips generic activities like pernottamento/check-in)
   - Accommodations (hotel images)
   - Restaurants (restaurant images)
   - Transport
   - Budget summary + detail (full cost tables, multi-slide pagination when items overflow)
   - Tips & Highlights
   - Sources (clickable hyperlinks)
-- **Images**: hero, activity `imageUrl`, accommodation `imageUrl`, restaurant `imageUrl` — all via `safeImage()` with base64 fallback
+- **Images**: hero (Unsplash fallback), activity `imageUrl` (Unsplash fallback, skips generic), attraction images (Unsplash), accommodation `imageUrl`, restaurant `imageUrl` — all via `safeImage()` with base64 fallback
 - **Budget detail**: NO item limit per category — all items shown; multi-slide overflow pagination when a category's items exceed slide capacity
 - **Sources**: clickable hyperlinks with URL displayed, split across slides if >10 sources
 
@@ -315,10 +320,16 @@ Uses **Nominatim (OpenStreetMap) API** — free, no API key, instant (~100ms), z
 - **Attractions**: Try geocoding with `name` alone first; if that fails, fall back to `name + destination` (e.g. "Colosseo, Roma").
 - **Cache**: Duplicate city lookups are skipped — once a city is geocoded, subsequent lookups return cached coordinates instantly.
 
-**TravelMap type support (commit 70df59e)**:
-- `TravelMap.tsx` now supports additional mapPoint types: `city`, `beach`, `nature`, `port`, `museum`, `monument` — each with distinct colors and emojis.
-- Unknown types fall back to 📍.
-- Legend only shows types actually present in the data, not all possible types.
+**Step 4 — City extraction override**:
+After geocoding AI-provided points, step 4 extracts unique cities from itinerary day-by-day activity locations, skips generic locations (hotel, aeroporto, pernottamento, check-in, arrivo, partenza, etc.), geocodes them, and **overrides mapPoints** with type "city" in visit order. Requires >= 2 valid geocoded cities. This ensures TravelMap always shows the actual route (city stops), not random AI points. Falls back to all valid geocoded points with dashed line if fewer than 2 city-type points are found.
+
+**TravelMap city route view** (`src/components/TravelMap.tsx`):
+- Shows only city-type mapPoints with numbered markers and directional arrows
+- **Markers**: 🛫 departure (green), numbered stops (purple), 🏠 return (red)
+- **Polyline**: solid line connecting city points with ➤ arrow heads at midpoints
+- **Legend**: shows Partenza/Tappa/Ritorno/Percorso route types
+- Zoom level 6 for route view
+- Falls back to all valid points with dashed line if no city-type points
 
 ### Deployment
 
@@ -339,7 +350,7 @@ src/
 │   ├── step2-contract.ts            # AccommodationTransport schema (officialUrl + selectedIndex + nullish)
 │   └── step3-contract.ts            # BudgetCalculation schema (with nullish)
 ├── services/
-│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + stopover in prompt + auto-retry + Nominatim geocoding post-validation (cache-aware: mapPoints strip prefixes, activities use location field, attractions name→name+destination fallback)
+│   ├── step1Service.ts              # generateItinerary() + modifyItinerary() + stop distribution rules + cleanEmptyStrings() + buildCompactPrompt() + stopover in prompt + auto-retry + Nominatim geocoding post-validation (cache-aware + Step 4 city extraction override: extracts unique cities from activity locations, skips generic, overrides mapPoints with type "city")
 │   ├── step2Service.ts              # searchAccommodationsAndTransport() (parallel Promise.allSettled + async generateCarSegments() + estimateRoadKmWithGeocode() + extractStops + markdown stripping + cleanEmptyStrings + safeParse + system message) — car segments now pass duration: null, distance: null (no km/duration display)
 │   ├── step3Service.ts              # calculateBudget() (pure JS, uses selectedIndex, 5 categories: Trasporti/Alloggi/Attività/Cibo/Extra e Imprevisti, category-specific tables)
 │   ├── travelService.ts             # Legacy: generateTravelPlan(), getDestinationCountries()
@@ -353,7 +364,7 @@ src/
 │   ├── ProfileForm.tsx              # Traveler profile
 │   ├── SavedTrips.tsx              # Saved trips list (legacy)
 │   ├── SavedTripsV2.tsx            # v2 saved trips list with step badges + favorites + delete confirm + onLoadTripV2
-│   ├── TravelMap.tsx               # Leaflet map (supports types: city, beach, nature, port, museum, monument + fallback 📍; legend only shows types present in data)
+│   ├── TravelMap.tsx               # Leaflet map — city route view: numbered markers (🛫 departure, numbered stops, 🏠 return), solid polyline with ➤ arrows, legend; fallback dashed line for non-city points
 │   └── NoteSuggestions.tsx         # Clickable note suggestions
 ├── lib/
 │   ├── auth.tsx                     # AuthProvider + useAuth hook
@@ -362,8 +373,8 @@ src/
 │   ├── supabase.ts                  # Supabase client
 │   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
 │   ├── safeBrowsing.ts             # Google Safe Browsing API client
-│   ├── nominatim.ts                # Nominatim geocoding (cache-aware: mapPoints strip prefixes, activities use location, attractions name+destination fallback; rate limiter + cache, free tier, 1 req/sec) — no estimateDriveDurationMinutes (removed)
-│   └── pptx-export.ts              # PPTX export (pptxgenjs, image pre-fetch to base64, full budget detail, clickable source links)
+│   ├── nominatim.ts                # Nominatim geocoding (cache-aware: mapPoints strip prefixes, activities use location, attractions name+destination fallback; Step 4 city extraction override; rate limiter + cache, free tier, 1 req/sec) — no estimateDriveDurationMinutes (removed)
+│   └── pptx-export.ts              # PPTX export (pptxgenjs, accepts unsplashImages Map, lookupUnsplash() helper, image pre-fetch to base64, all images rectangular, Unsplash fallback for hero/attractions/activities/map points, full budget detail, clickable source links)
 supabase/
 ├── schema.sql                       # DB schema (profiles, saved_trips, saved_trips_v2)
 └── migrations/
