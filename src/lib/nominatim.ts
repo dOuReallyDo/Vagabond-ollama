@@ -17,7 +17,7 @@ interface GeocodedPoint {
   lat: number;
   lng: number;
   label: string;
-  source: 'nominatim' | 'ai';  // to track where coords came from
+  source: 'nominatim' | 'ai';
 }
 
 // Cache: avoid re-geocoding the same city multiple times per session
@@ -42,50 +42,140 @@ async function rateLimitedFetch(url: string): Promise<Response> {
 }
 
 /**
+ * Italian descriptive prefixes that should be stripped before geocoding.
+ * These cause Nominatim to return wrong locations.
+ * E.g. "Centro di Lisbona" → "Lisbona", "Arrivo a Marsiglia" → "Marsiglia"
+ */
+const ITALIAN_PREFIXES = [
+  /^centro\s+(di|del|della|dei|degli|delle|dell')\s*/i,
+  /^zona\s+(di|del|della|dei|degli|delle|dell')\s*/i,
+  /^area\s+(di|del|della|dei|degli|delle|dell')\s*/i,
+  /^regione\s+(di|del|della|dei|degli|delle|dell')\s*/i,
+  /^penisola\s+(di|del|della|dell')\s*/i,
+  /^isola\s+(di|del|della|dell')\s*/i,
+  /^costa\s+(di|del|della|dell'|dei)\s*/i,
+  /^valle\s+(di|del|della|dell'|dei)\s*/i,
+  /^parco\s+(nazionale\s+di|regionale\s+di|di|del|della|dell'|nazionale\s+del)\s*/i,
+  /^parco\s+/i,
+  /^arrivo\s+a\s*/i,
+  /^partenza\s+da\s*/i,
+  /^visita\s+a\s*/i,
+  /^escursione\s+a\s*/i,
+  /^giro\s+(di|del|della|dei|degli|delle)\s+/i,
+  /^passeggiata\s+(a|in|per)\s*/i,
+  /^tour\s+(di|del|della|dei|degli|delle)\s+/i,
+  /^giornata\s+(a|in)\s*/i,
+  /^serata\s+(a|in)\s*/i,
+  /^mattina\s+(a|in)\s*/i,
+  /^pomeriggio\s+(a|in)\s*/i,
+  /^esplorazione\s+(di|del|della)\s*/i,
+  /^scoperta\s+(di|del|della)\s*/i,
+  /^pernottamento\s+(a|in)\s*/i,
+  /^soggiorno\s+(a|in)\s*/i,
+  /^fermata\s+(a|in)\s*/i,
+  /^tappa\s+(a|in)\s*/i,
+  /^cena\s+(a|in)\s*/i,
+  /^pranzo\s+(a|in)\s*/i,
+  /^colazione\s+(a|in)\s*/i,
+  /^relax\s+(a|in)\s*/i,
+  /^riposo\s+(a|in)\s*/i,
+  /^volo\s+(da|a|per)\s*/i,
+  /^trasferimento\s+(a|da|per)\s*/i,
+  /^spostamento\s+(a|da|per)\s*/i,
+];
+
+/**
+ * Strip Italian descriptive prefixes from a location name for geocoding.
+ * "Centro di Lisbona" → "Lisbona"
+ * "Arrivo a Marsiglia" → "Marsiglia"
+ * "Escursione a Sintra" → "Sintra"
+ */
+function stripItalianPrefix(name: string): string {
+  let cleaned = name.trim();
+  for (const prefix of ITALIAN_PREFIXES) {
+    cleaned = cleaned.replace(prefix, '');
+  }
+  return cleaned.trim();
+}
+
+/**
  * Geocode a single place name to lat/lng.
  * Returns null if geocoding fails (caller should keep AI-provided coords as fallback).
+ * 
+ * Strategy:
+ * 1. Try with countryCode (restrict search to destination country)
+ * 2. If no result, try without countryCode (global search — Nominatim is smart for known city names)
+ * 3. Strip Italian prefixes and retry if original query failed
  */
 async function geocodePlace(name: string, countryCode?: string): Promise<{ lat: number; lng: number } | null> {
-  const cacheKey = `${name.toLowerCase()}|${countryCode || ''}`;
-  if (geocodeCache.has(cacheKey)) {
-    return geocodeCache.get(cacheKey)!;
+  // Strip Italian descriptive prefixes before geocoding
+  const cleanName = stripItalianPrefix(name);
+  
+  // Don't geocode very short strings (likely not real place names)
+  if (cleanName.length < 2) return null;
+  
+  // Try geocoding in order of preference
+  const queries: Array<{ query: string; cc: string | undefined }> = [];
+  
+  if (countryCode) {
+    // With country code first (most precise)
+    queries.push({ query: cleanName, cc: countryCode });
+  }
+  // Then without country code (Nominatim is smart about well-known city names)
+  queries.push({ query: cleanName, cc: undefined });
+  
+  for (const { query, cc } of queries) {
+    const cacheKey = `${query.toLowerCase()}|${cc || ''}`;
+    if (geocodeCache.has(cacheKey)) {
+      return geocodeCache.get(cacheKey)!;
+    }
+  }
+  
+  for (const { query, cc } of queries) {
+    try {
+      let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+      if (cc) {
+        url += `&countrycodes=${cc.toLowerCase()}`;
+      }
+
+      const res = await rateLimitedFetch(url);
+      if (!res.ok) {
+        console.warn(`[Nominatim] HTTP ${res.status} for "${query}" (cc=${cc})`);
+        continue; // Try next query
+      }
+
+      const data: NominatimResult[] = await res.json();
+      if (data.length === 0) {
+        continue; // Try next query
+      }
+
+      const result = {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+      };
+
+      // Validate: lat must be -90..90, lng must be -180..180
+      if (isNaN(result.lat) || isNaN(result.lng) || Math.abs(result.lat) > 90 || Math.abs(result.lng) > 180) {
+        console.warn(`[Nominatim] Invalid coords for "${query}": ${result.lat}, ${result.lng}`);
+        continue;
+      }
+
+      // Cache all variants
+      const cacheKey = `${query.toLowerCase()}|${cc || ''}`;
+      geocodeCache.set(cacheKey, result);
+      // Also cache the original (uncleaned) name so we hit cache next time
+      if (name.toLowerCase() !== query.toLowerCase()) {
+        geocodeCache.set(`${name.toLowerCase()}|${cc || ''}`, result);
+      }
+      return result;
+    } catch (err) {
+      console.warn(`[Nominatim] Error geocoding "${query}" (cc=${cc}):`, err);
+      continue;
+    }
   }
 
-  try {
-    let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&limit=1`;
-    if (countryCode) {
-      url += `&countrycodes=${countryCode.toLowerCase()}`;
-    }
-
-    const res = await rateLimitedFetch(url);
-    if (!res.ok) {
-      console.warn(`[Nominatim] HTTP ${res.status} for "${name}"`);
-      return null;
-    }
-
-    const data: NominatimResult[] = await res.json();
-    if (data.length === 0) {
-      console.warn(`[Nominatim] No results for "${name}"`);
-      return null;
-    }
-
-    const result = {
-      lat: parseFloat(data[0].lat),
-      lng: parseFloat(data[0].lon),
-    };
-
-    // Validate: lat must be -90..90, lng must be -180..180
-    if (isNaN(result.lat) || isNaN(result.lng) || Math.abs(result.lat) > 90 || Math.abs(result.lng) > 180) {
-      console.warn(`[Nominatim] Invalid coords for "${name}": ${result.lat}, ${result.lng}`);
-      return null;
-    }
-
-    geocodeCache.set(cacheKey, result);
-    return result;
-  } catch (err) {
-    console.warn(`[Nominatim] Error geocoding "${name}":`, err);
-    return null;
-  }
+  console.warn(`[Nominatim] No results for "${name}" (tried: "${cleanName}")`);
+  return null;
 }
 
 /**
@@ -112,9 +202,9 @@ function detectCountryCode(location: string): string | undefined {
     'paesi bassi': 'nl', 'netherlands': 'nl', 'oland': 'nl',
     'belgio': 'be', 'belgium': 'be',
     'polonia': 'pl', 'poland': 'pl',
-    'cze': 'cz', 'czech': 'cz', 'ceca': 'cz',
+    'cze': 'cz', 'czech': 'cz', 'ceca': 'cz', 'repubblica ceca': 'cz',
     'ungheria': 'hu', 'hungary': 'hu',
-    'romania': 'ro',
+    'romania': 'ro', 'rumania': 'ro',
     'bulgaria': 'bg',
     'serbia': 'rs',
     'slovenia': 'si',
@@ -134,6 +224,9 @@ function detectCountryCode(location: string): string | undefined {
     'vietnam': 'vn',
     'india': 'in',
     'mexico': 'mx', 'messico': 'mx',
+    'colombia': 'co',
+    'perù': 'pe', 'peru': 'pe',
+    'cile': 'cl', 'chile': 'cl',
   };
 
   const lower = location.toLowerCase();
@@ -144,6 +237,139 @@ function detectCountryCode(location: string): string | undefined {
 }
 
 /**
+ * Italian city name → local name mapping for common destinations.
+ * Nominatim resolves Italian names (Lisbona) well, but some local names
+ * give better results. This handles the most common cases.
+ */
+const CITY_NAME_MAP: Record<string, string> = {
+  // Portugal
+  'lisbona': 'Lisbon',
+  'porto': 'Porto',  // Porto works in both Italian and local
+  'faro': 'Faro',
+  'coimbra': 'Coimbra',
+  'braga': 'Braga',
+  // UK/Ireland
+  'londra': 'London',
+  'edimburgo': 'Edinburgh',
+  'dublino': 'Dublin',
+  'cork': 'Cork',
+  // Germany/Austria/Switzerland
+  'monaco di baviera': 'Munich',
+  'monaco': 'Munich',  // In Italian travel context, "Monaco" usually means Munich
+  'colonia': 'Cologne',
+  'francoforte': 'Frankfurt',
+  'amburgo': 'Hamburg',
+  'stoccarda': 'Stuttgart',
+  'dresda': 'Dresden',
+  'norimberga': 'Nuremberg',
+  'vienna': 'Vienna',
+  'zurigo': 'Zurich',
+  'ginevra': 'Geneva',
+  'basilea': 'Basel',
+  'bern': 'Bern',
+  // France
+  'parigi': 'Paris',
+  'lyon': 'Lyon',
+  'lione': 'Lyon',
+  'marsiglia': 'Marseille',
+  'nizza': 'Nice',
+  'tolosa': 'Toulouse',
+  'bordeaux': 'Bordeaux',
+  'strasburgo': 'Strasbourg',
+  'nantes': 'Nantes',
+  'montpellier': 'Montpellier',
+  // Spain
+  'barcellona': 'Barcelona',
+  'madrid': 'Madrid',
+  'siviglia': 'Seville',
+  'valencia': 'Valencia',
+  'granada': 'Granada',
+  'malaga': 'Málaga',
+  'bilbao': 'Bilbao',
+  // Greece
+  'atene': 'Athens',
+  'salonicco': 'Thessaloniki',
+  'creta': 'Crete',
+  'santorini': 'Santorini',
+  'rodi': 'Rhodes',
+  // Croatia
+  'zagabria': 'Zagreb',
+  'dubrovnik': 'Dubrovnik',
+  'spalato': 'Split',
+  // Eastern Europe
+  'praga': 'Prague',
+  'budapest': 'Budapest',
+  'varsavia': 'Warsaw',
+  'cracovia': 'Krakow',
+  // Nordic
+  'stoccolma': 'Stockholm',
+  'oslo': 'Oslo',
+  'copenaghen': 'Copenhagen',
+  'helsinki': 'Helsinki',
+  'reykjavik': 'Reykjavik',
+  // Netherlands/Belgium
+  'amsterdam': 'Amsterdam',
+  'rotterdam': 'Rotterdam',
+  'bruxelles': 'Brussels',
+  'anversa': 'Antwerp',
+  'gand': 'Ghent',
+  // UK cities
+  'manchester': 'Manchester',
+  'birmingham': 'Birmingham',
+  'liverpool': 'Liverpool',
+  'bath': 'Bath, UK',
+  // Other
+  'istanbul': 'Istanbul',
+  'marrakech': 'Marrakech',
+  'il cairo': 'Cairo',
+  'cairo': 'Cairo',
+  'capo verde': 'Cape Verde',
+  'madera': 'Madeira',
+  'azzorre': 'Azores',
+};
+
+/**
+ * Resolve a city name to its most geocodable form.
+ * Italian city names are mapped to local/international names that Nominatim handles best.
+ */
+function resolveCityName(name: string): string {
+  const lower = name.toLowerCase().trim();
+  // Check exact match first
+  if (CITY_NAME_MAP[lower]) return CITY_NAME_MAP[lower];
+  // Check if name starts with a mapped prefix
+  for (const [itName, localName] of Object.entries(CITY_NAME_MAP)) {
+    if (lower === itName || lower.startsWith(itName + ' ')) {
+      return localName;
+    }
+  }
+  return name;
+}
+
+/**
+ * Extract a clean city/place name from a location string.
+ * Handles patterns like:
+ * - "Lisbona, Portogallo" → "Lisbona"
+ * - "Lisbona (Portogallo)" → "Lisbona"
+ * - "Centro di Lisbona" → "Lisbona"
+ * - "Escursione a Sintra" → "Sintra"
+ * - "Porto - Ribeira" → "Porto"
+ */
+function extractPlaceName(location: string): string {
+  let name = location.trim();
+  
+  // Strip Italian descriptive prefixes (e.g., "Centro di Lisbona" → "Lisbona")
+  name = stripItalianPrefix(name);
+  
+  // Take first part before comma/paren/dash/en-dash/em-dash
+  name = name.split(/[,(–—]/)[0].trim();
+  
+  // Resolve Italian city names to local names for better geocoding
+  name = resolveCityName(name);
+  
+  return name;
+}
+
+/**
  * Geocode all mapPoints from AI-generated itinerary data.
  * Replaces AI-provided lat/lng with Nominatim-resolved coordinates.
  * Falls back to AI coords if Nominatim fails for a point.
@@ -151,25 +377,32 @@ function detectCountryCode(location: string): string | undefined {
  * 
  * @param data - The Step 1 ItineraryDraft data (mutated in place)
  * @param destination - The trip destination (for country context)
+ * @param departureCity - The departure city (for country context enhancement)
  * @returns The same data object with updated coordinates
  */
 export async function geocodeItinerary(
   data: any, // ItineraryDraft - using any to avoid circular imports
-  destination: string
+  destination: string,
+  departureCity?: string
 ): Promise<any> {
   const countryCode = detectCountryCode(destination);
+  
+  // Also detect country from departure city for better context
+  // (if destination doesn't contain a country name, departure might)
+  const departureCountryCode = departureCity ? detectCountryCode(departureCity) : undefined;
+  const effectiveCountryCode = countryCode || departureCountryCode;
 
-  // 1. Geocode mapPoints — use only the label (city/place name, not descriptive text)
+  // 1. Geocode mapPoints — extract clean place name from labels
   if (data.mapPoints && Array.isArray(data.mapPoints)) {
-    // Batch geocode unique labels to respect rate limit
-    const allLabels: string[] = (data.mapPoints as any[]).map((p: any) => p.label as string).filter(Boolean);
+    const allLabels: string[] = (data.mapPoints as any[])
+      .map((p: any) => p.label as string)
+      .filter(Boolean);
     const uniqueLabels = Array.from(new Set(allLabels));
     const labelCoords = new Map<string, { lat: number; lng: number }>();
 
     for (const label of uniqueLabels) {
-      // Extract just the place name: take first part before comma/paren/dash
-      const placeName = label.split(/[,(\\-–—]/)[0].trim();
-      const result = await geocodePlace(placeName, countryCode);
+      const placeName = extractPlaceName(label);
+      const result = await geocodePlace(placeName, effectiveCountryCode);
       if (result) {
         labelCoords.set(label, result);
       }
@@ -188,20 +421,23 @@ export async function geocodeItinerary(
   }
 
   // 2. Geocode attraction points in destinationOverview
-  //    Strategy: try attraction name alone first, then with destination as fallback
+  //    Strategy: try attraction name alone first, then with destination context
   if (data.destinationOverview?.attractions && Array.isArray(data.destinationOverview.attractions)) {
+    const destCity = destination.split(',')[0].trim();
     for (const attraction of data.destinationOverview.attractions) {
       if (!attraction.name) continue;
+      const cleanName = extractPlaceName(attraction.name);
+      
       // Try just the attraction name first (more specific = better match)
-      const result = await geocodePlace(attraction.name, countryCode);
+      const result = await geocodePlace(cleanName, effectiveCountryCode);
       if (result) {
         attraction.lat = result.lat;
         attraction.lng = result.lng;
         continue;
       }
       // Fallback: name + destination city
-      const searchName = `${attraction.name}, ${destination.split(',')[0]}`;
-      const result2 = await geocodePlace(searchName, countryCode);
+      const searchName = `${cleanName}, ${destCity}`;
+      const result2 = await geocodePlace(searchName, effectiveCountryCode);
       if (result2) {
         attraction.lat = result2.lat;
         attraction.lng = result2.lng;
@@ -221,12 +457,12 @@ export async function geocodeItinerary(
         const genericLocations = ['casa', 'hotel', 'albergo', 'b&b', 'hostel'];
         if (genericLocations.some(g => activity.location.toLowerCase().includes(g))) continue;
 
-        // Extract just the city name from location (e.g. "Marsiglia, Provenza" → "Marsiglia")
-        const cityName = activity.location.split(/[,\-–—(]/)[0].trim();
+        // Extract clean city name (strip prefixes, resolve Italian names)
+        const cityName = extractPlaceName(activity.location);
 
         // Don't re-geocode the same city multiple times — use a cache check
-        const cacheKey = `activity:${cityName}`;
-        const existing = geocodeCache.get(`${cityName.toLowerCase()}|${countryCode || ''}`);
+        const cacheKey = `${cityName.toLowerCase()}|${effectiveCountryCode || ''}`;
+        const existing = geocodeCache.get(cacheKey);
         if (existing) {
           activity.lat = existing.lat;
           activity.lng = existing.lng;
@@ -234,7 +470,7 @@ export async function geocodeItinerary(
         }
 
         // Try geocoding the city
-        const result = await geocodePlace(cityName, countryCode);
+        const result = await geocodePlace(cityName, effectiveCountryCode);
         if (result) {
           activity.lat = result.lat;
           activity.lng = result.lng;
@@ -258,19 +494,26 @@ export async function geocodeItinerary(
         const GENERIC = ['casa', 'hotel', 'albergo', 'b&b', 'hostel', 'resort', 'appartamento', 'villa', 'campeggio', 'pernottamento', 'check-in', 'check-out', 'ricerca', 'arrivo', 'partenza', 'aeroporto', 'stazione'];
         const locLower = loc.toLowerCase().trim();
         if (GENERIC.some(g => locLower === g || locLower.startsWith(g + ' '))) continue;
-        // Extract city name: take first part before comma/paren
-        const cityName = loc.split(/[,(\-–—]/)[0].trim();
+        
+        // Extract clean city name (strip Italian prefixes, resolve names)
+        const cityName = extractPlaceName(loc);
         if (!cityName || cityName.length < 2) continue;
+        
         const key = cityName.toLowerCase();
         if (!seenCities.has(key)) {
           seenCities.add(key);
-          // Find coordinates: check existing mapPoints first, then geocode
-          const existing = data.mapPoints?.find((p: any) => p.label && p.label.toLowerCase() === key);
+          // Find coordinates: check existing mapPoints first, then geocode cache, then geocode
+          const existing = data.mapPoints?.find((p: any) => {
+            if (!p.label) return false;
+            const pClean = extractPlaceName(p.label).toLowerCase();
+            return pClean === key;
+          });
           if (existing && existing.lat && existing.lng && existing.lat !== 0 && existing.lng !== 0) {
             cityRoute.push({ label: cityName, lat: existing.lat, lng: existing.lng });
           } else {
             // Check activity geocoded coords cache
-            const geocoded = geocodeCache.get(`${key}|${countryCode || ''}`);
+            const cacheKey = `${key}|${effectiveCountryCode || ''}`;
+            const geocoded = geocodeCache.get(cacheKey);
             if (geocoded) {
               cityRoute.push({ label: cityName, lat: geocoded.lat, lng: geocoded.lng });
             } else {
@@ -284,7 +527,7 @@ export async function geocodeItinerary(
     // Geocode any cityRoute entries that still have lat=0, lng=0
     for (const city of cityRoute) {
       if (city.lat === 0 && city.lng === 0) {
-        const result = await geocodePlace(city.label, countryCode);
+        const result = await geocodePlace(city.label, effectiveCountryCode);
         if (result) {
           city.lat = result.lat;
           city.lng = result.lng;
@@ -295,7 +538,6 @@ export async function geocodeItinerary(
     // Only override mapPoints if we got at least 2 cities with valid coordinates
     const validCities = cityRoute.filter(c => c.lat !== 0 && c.lng !== 0);
     if (validCities.length >= 2) {
-      // Add departure city if it's the first location and matches the itinerary start
       data.mapPoints = validCities.map(c => ({
         lat: c.lat,
         lng: c.lng,
@@ -318,9 +560,12 @@ export async function geocodeCities(
   destination?: string
 ): Promise<{ a: { lat: number; lng: number } | null; b: { lat: number; lng: number } | null }> {
   const countryCode = destination ? detectCountryCode(destination) : undefined;
+  const cityAResolved = resolveCityName(cityA);
+  const cityBResolved = resolveCityName(cityB);
+  // geocodePlace now has fallback logic, so we can call with countryCode
   const [a, b] = await Promise.all([
-    geocodePlace(cityA, countryCode),
-    geocodePlace(cityB, countryCode),
+    geocodePlace(cityAResolved, countryCode),
+    geocodePlace(cityBResolved, countryCode),
   ]);
   return { a, b };
 }

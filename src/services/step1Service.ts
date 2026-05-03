@@ -558,7 +558,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere tes
     onProgress?.("Verifica coordinate mappa...", 92);
     try {
       const destination = `${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}`;
-      await geocodeItinerary(result, destination);
+      await geocodeItinerary(result, destination, inputs.departureCity);
       console.log("[Step1] Nominatim geocoding completed for mapPoints/attractions/activities");
     } catch (geoErr) {
       console.warn("[Step1] Nominatim geocoding failed, keeping AI coordinates:", geoErr);
@@ -728,7 +728,7 @@ IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido con TUTTI i campi.
     onProgress?.("Verifica coordinate mappa...", 92);
     try {
       const destination = `${inputs.destination}${inputs.country ? ` (${inputs.country})` : ""}`;
-      await geocodeItinerary(validationResult.data, destination);
+      await geocodeItinerary(validationResult.data, destination, inputs.departureCity);
     } catch (geoErr) {
       console.warn("[Step1] Nominatim geocoding failed on modify, keeping AI coordinates:", geoErr);
     }
