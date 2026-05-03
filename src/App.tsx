@@ -3523,7 +3523,7 @@ export default function App() {
     if (!step1Data || !step2Data || !step3Data || !lastInputs) return;
     setPdfExporting(true);
     try {
-      await exportTripToPPTX(lastInputs, step1Data, step2Data, step3Data);
+      await exportTripToPPTX(lastInputs, step1Data, step2Data, step3Data, unsplashImages);
     } catch (err) {
       console.error('PPTX export failed:', err);
     } finally {

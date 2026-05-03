@@ -97,12 +97,23 @@ function addMasters(pres: PptxGenJS) {
   pres.defineSlideMaster({ title: 'SECTION', background: { color: C.accent } });
 }
 
+// ─── Unsplash lookup (same logic as App.tsx getImageUrl / getUnsplashOnly) ────
+function lookupUnsplash(keyword: string, unsplashMap?: Map<string, string>): string | null {
+  if (!unsplashMap) return null;
+  const kw = keyword.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  for (const tryKey of [kw, kw.split(' ').slice(0, 3).join(' '), kw.split(' ').slice(0, 2).join(' ')]) {
+    if (unsplashMap.has(tryKey)) return unsplashMap.get(tryKey)!;
+  }
+  return null;
+}
+
 // ─── Main export function ────────────────────────────────────────────────────
 export async function exportTripToPPTX(
   inputs: TravelInputs,
   step1Data: ItineraryDraft,
   step2Data: AccommodationTransport,
   step3Data: BudgetCalculation,
+  unsplashImages?: Map<string, string>,
 ): Promise<void> {
   const pres = new PptxGenJS();
   pres.layout = 'LAYOUT_16x9';
@@ -121,8 +132,42 @@ export async function exportTripToPPTX(
 
   // ── Pre-fetch all images → base64 (browser pptxgenjs needs data URIs) ───
   const allImageUrls: string[] = [];
+  const dest = destinationOverview?.title || inputs.destination || 'travel';
+
+  // Hero image: AI-provided + Unsplash fallback
+  const heroUnsplash = lookupUnsplash(`${dest} ${inputs.country || ''} landscape`.trim(), unsplashImages);
   if (destinationOverview?.heroImageUrl) allImageUrls.push(destinationOverview.heroImageUrl);
-  if (itinerary) itinerary.forEach(d => (d.activities || []).forEach(a => { if (a.imageUrl) allImageUrls.push(a.imageUrl!); }));
+  if (heroUnsplash) allImageUrls.push(heroUnsplash);
+
+  // Attractions: Unsplash images (no imageUrl in schema, only sourceUrl)
+  if (destinationOverview?.attractions) {
+    destinationOverview.attractions.forEach(attr => {
+      const attrUnsplash = lookupUnsplash(`${attr.name} ${dest}`, unsplashImages);
+      if (attrUnsplash) allImageUrls.push(attrUnsplash);
+    });
+  }
+
+  // Itinerary activities: AI imageUrl + Unsplash fallback
+  const GENERIC = ['check out', 'checkout', 'check-in', 'check in', 'checkin', 'colazione', 'partenza', 'riposo', 'tempo libero', 'notte in', 'pernottamento'];
+  if (itinerary) itinerary.forEach(d => (d.activities || []).forEach(a => {
+    if (a.imageUrl) allImageUrls.push(a.imageUrl!);
+    const text = ((a.name || '') + ' ' + (a.description || '')).toLowerCase();
+    if (!GENERIC.some(kw => text.includes(kw)) && a.name && a.name.length > 3) {
+      const loc = a.location || dest;
+      const actUnsplash = lookupUnsplash(`${a.name} ${loc}`, unsplashImages);
+      if (actUnsplash) allImageUrls.push(actUnsplash);
+    }
+  }));
+
+  // Map points / stops: Unsplash images
+  if (mapPoints) {
+    mapPoints.forEach(p => {
+      const mpUnsplash = lookupUnsplash(`${p.label} ${dest}`, unsplashImages);
+      if (mpUnsplash) allImageUrls.push(mpUnsplash);
+    });
+  }
+
+  // Accommodations & restaurants: AI-provided images only (no Unsplash for these)
   if (accommodations) accommodations.forEach(s => (s.options || []).forEach(o => { if (o.imageUrl) allImageUrls.push(o.imageUrl!); }));
   if (bestRestaurants) bestRestaurants.forEach(s => (s.options || []).forEach(r => { if (r.imageUrl) allImageUrls.push(r.imageUrl!); }));
   imageCache.clear();
@@ -131,8 +176,10 @@ export async function exportTripToPPTX(
   // ── SLIDE 1: COVER ──────────────────────────────────────────────────────
   {
     const slide = pres.addSlide({ masterName: 'COVER' });
-    if (destinationOverview?.heroImageUrl) {
-      safeImage(slide, { path: destinationOverview.heroImageUrl, x: 0, y: 0, w: '100%', h: '100%', sizing: { type: 'cover', w: 10, h: 5.625 } });
+    // Use AI hero image if available, else Unsplash, else solid bg
+    const coverImg = destinationOverview?.heroImageUrl || heroUnsplash;
+    if (coverImg) {
+      safeImage(slide, { path: coverImg, x: 0, y: 0, w: '100%', h: '100%', sizing: { type: 'cover', w: 10, h: 5.625 } });
       slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: '000000', transparency: 55 } });
     } else {
       slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: C.accent } });
@@ -204,16 +251,19 @@ export async function exportTripToPPTX(
       const y = 1.1 + row * 2.0;
       slide.addShape('roundRect', { x, y, w: colW, h: 1.7, fill: { color: C.warmBg }, rectRadius: 0.1 });
 
-      // Attraction image if available
-      if (attr.sourceUrl) {
-        // Use sourceUrl as a fallback link — no direct imageUrl on attraction
+      // Attraction image from Unsplash
+      const attrImgUrl = lookupUnsplash(`${attr.name} ${dest}`, unsplashImages);
+      if (attrImgUrl) {
+        safeImage(slide, { path: attrImgUrl, x: x + 0.05, y: y + 0.05, w: colW - 0.1, h: 0.85, sizing: { type: 'cover', w: colW - 0.1, h: 0.85 }, rounding: true });
       }
 
-      slide.addText(attr.name, { x: x + 0.15, y: y + 0.1, w: colW - 0.3, h: 0.35, fontSize: 14, fontFace: FONT_SANS, color: C.ink, bold: true });
+      const textStartY = attrImgUrl ? y + 0.95 : y + 0.1;
+      const nameFontSize = attrImgUrl ? 12 : 14;
+      slide.addText(attr.name, { x: x + 0.15, y: textStartY, w: colW - 0.3, h: 0.3, fontSize: nameFontSize, fontFace: FONT_SANS, color: C.ink, bold: true });
       const sub: any[] = [];
       if (attr.estimatedVisitTime) sub.push({ text: `⏱ ${attr.estimatedVisitTime}`, options: { fontSize: 10, color: C.inkLight, breakLine: true } });
-      sub.push({ text: attr.description, options: { fontSize: 11, color: C.inkMuted } });
-      slide.addText(sub, { x: x + 0.15, y: y + 0.45, w: colW - 0.3, h: 1.1 });
+      sub.push({ text: attr.description, options: { fontSize: 10, color: C.inkMuted } });
+      slide.addText(sub, { x: x + 0.15, y: textStartY + 0.3, w: colW - 0.3, h: 0.55 });
     });
 
     // Map points summary
@@ -225,10 +275,17 @@ export async function exportTripToPPTX(
         const col = i % 4;
         const row = Math.floor(i / 4);
         const x = 0.6 + col * 2.3;
-        const y = 1.1 + row * 1.0;
-        if (y < 4.5) {
-          slide2.addShape('roundRect', { x, y, w: 2.1, h: 0.8, fill: { color: C.warmBg }, rectRadius: 0.08 });
-          slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.05, w: 1.9, h: 0.7, fontSize: 12, fontFace: FONT_SANS, color: C.ink, valign: 'middle' });
+        const y = 1.1 + row * 1.8;
+        if (y < 3.8) {
+          const mpImgUrl = lookupUnsplash(`${p.label} ${dest}`, unsplashImages);
+          if (mpImgUrl) {
+            safeImage(slide2, { path: mpImgUrl, x, y, w: 2.1, h: 1.1, sizing: { type: 'cover', w: 2.1, h: 1.1 }, rounding: true });
+            slide2.addShape('rect', { x, y: y + 0.7, w: 2.1, h: 0.4, fill: { color: '000000', transparency: 40 } });
+            slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.72, w: 1.9, h: 0.35, fontSize: 11, fontFace: FONT_SANS, color: C.white, bold: true, valign: 'middle' });
+          } else {
+            slide2.addShape('roundRect', { x, y, w: 2.1, h: 0.8, fill: { color: C.warmBg }, rectRadius: 0.08 });
+            slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.05, w: 1.9, h: 0.7, fontSize: 12, fontFace: FONT_SANS, color: C.ink, valign: 'middle' });
+          }
         }
       });
     }
@@ -253,14 +310,20 @@ export async function exportTripToPPTX(
       (day.activities || []).forEach((act) => {
         if (actY > 4.8) return;
 
-        // Activity card — wider if no image, narrower if image present
-        const hasImg = !!act.imageUrl;
+        // Resolve image: AI imageUrl first, then Unsplash fallback
+        const isGenericAct = GENERIC.some(kw => ((act.name || '') + ' ' + (act.description || '')).toLowerCase().includes(kw));
+        const actUnsplash = (!isGenericAct && act.name && act.name.length > 3)
+          ? lookupUnsplash(`${act.name} ${act.location || dest}`, unsplashImages)
+          : null;
+        const resolvedImgUrl = act.imageUrl || actUnsplash;
+
+        const hasImg = !!resolvedImgUrl;
         const cardW = hasImg ? 7.5 : 8.8;
         const cardX = 0.6;
 
-        // Image on the left, text on the right
+        // Image on the right, text on the left
         if (hasImg) {
-          safeImage(slide, { path: act.imageUrl!, x: cardX + cardW + 0.15, y: actY, w: 1.15, h: 0.75, sizing: { type: 'cover', w: 1.15, h: 0.75 }, rounding: true });
+          safeImage(slide, { path: resolvedImgUrl!, x: cardX + cardW + 0.15, y: actY, w: 1.15, h: 0.75, sizing: { type: 'cover', w: 1.15, h: 0.75 }, rounding: true });
         }
 
         slide.addShape('roundRect', { x: cardX, y: actY, w: cardW, h: 0.75, fill: { color: C.warmBg2 }, rectRadius: 0.08 });
