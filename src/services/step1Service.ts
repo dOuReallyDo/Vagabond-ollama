@@ -258,7 +258,7 @@ REGOLE COMPATTE PER EVITARE TRONCAMENTO:
 - travelHighlights: whyChosen e whyUnforgettable: MAX 1 frase
 - localTips: MAX 2 elementi
 - transportInfo: 1 frase per campo, MAX 2 bestApp
-- mapPoints: MAX 3 punti (1 per tappa principale)
+- mapPoints: SOLO le città/tappe principali del viaggio (NON singole attrazioni), type "city", in ordine di visita. MAX 10 punti.
 - sources: MAX 3 fonti
 - NESSUN campo tips, travelTime, transport nelle attività
 - JSON PURO: zero markdown, zero testo dopo }
@@ -295,7 +295,7 @@ Struttura JSON (riempi TUTTI i campi):
   "localTips": ["Tip1", "Tip2"],
   "transportInfo": { "localTransport": "1 frase", "bestApps": ["App1"], "estimatedLocalCost": "€X al giorno" (costo giornaliero per persona) },
   "travelHighlights": { "whyChosen": "1 frase", "mainStops": [{ "name": "Tappa", "reason": "Motivo" }], "whyUnforgettable": "1 frase" },
-  "mapPoints": [{ "lat": 0, "lng": 0, "label": "Tappa", "type": "attraction" }],
+  "mapPoints": [{ "lat": 0, "lng": 0, "label": "Città tappa", "type": "city" }],
   "sources": [{ "title": "Fonte", "url": "https://...", "type": "blog" }]
 }
 

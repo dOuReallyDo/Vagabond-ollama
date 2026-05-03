@@ -4,7 +4,7 @@ interface MapPoint {
   lat: number;
   lng: number;
   label: string;
-  type?: 'attraction' | 'hotel' | 'restaurant' | 'activity' | 'city' | 'beach' | 'nature' | 'port' | 'museum' | 'monument' | string;
+  type?: 'attraction' | 'hotel' | 'restaurant' | 'activity' | 'city' | 'beach' | 'nature' | 'port' | 'museum' | 'monument' | 'mountain' | 'lake' | string;
 }
 
 interface TravelMapProps {
@@ -12,46 +12,27 @@ interface TravelMapProps {
   destination: string;
 }
 
-// Default color/emoji for unknown types
-const DEFAULT_COLOR = '#5a5a40';
-const DEFAULT_EMOJI = '📍';
-
-const typeColors: Record<string, string> = {
-  attraction: '#5a5a40',
-  hotel: '#2563eb',
-  restaurant: '#dc2626',
-  activity: '#16a34a',
-  city: '#7c3aed',
-  beach: '#f59e0b',
-  nature: '#22c55e',
-  port: '#0ea5e9',
-  museum: '#8b5cf6',
-  monument: '#6b7280',
-};
-
-const typeEmoji: Record<string, string> = {
-  attraction: '🏛️',
-  hotel: '🏨',
-  restaurant: '🍽️',
-  activity: '🎯',
-  city: '🏙️',
-  beach: '🏖️',
-  nature: '🌿',
-  port: '⚓',
-  museum: '🎨',
-  monument: '🗿',
-};
+const CITY_COLOR = '#7c3aed';
+const CITY_BG = '#7c3aed';
 
 export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
 
-  // Compute valid points outside useEffect for legend rendering
-  const validPoints = useMemo(() =>
-    points.filter(
-      (p) => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)
+  // Filter to city-type stops only (main itinerary stops)
+  const cityPoints = useMemo(
+    () => points.filter(
+      (p) => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng) && (p.type === 'city' || !p.type)
     ),
     [points]
+  );
+
+  // If no city-type points, fall back to all valid points
+  const validPoints = useMemo(
+    () => cityPoints.length > 0 ? cityPoints : points.filter(
+      (p) => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)
+    ),
+    [cityPoints, points]
   );
 
   useEffect(() => {
@@ -61,11 +42,9 @@ export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => 
 
     if (validPoints.length === 0) return;
 
-    // Importa Leaflet dinamicamente per evitare SSR issues
     import('leaflet').then((L) => {
       if (isCancelled || mapInstance.current) return;
 
-      // Fix icone Leaflet con Vite
       delete (L.Icon.Default.prototype as any)._getIconUrl;
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -73,8 +52,7 @@ export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => 
         shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
       });
 
-      // Verifica se il container ha già una mappa (Leaflet aggiunge una classe o proprietà)
-      // @ts-expect-error -- Leaflet internal property not in types
+      // @ts-expect-error -- Leaflet internal
       if (mapRef.current?._leaflet_id) return;
 
       try {
@@ -85,7 +63,7 @@ export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => 
 
         const map = L.map(mapRef.current!, {
           center,
-          zoom: 13,
+          zoom: cityPoints.length > 0 ? 6 : 13,
           zoomControl: true,
           scrollWheelZoom: true,
         });
@@ -97,70 +75,135 @@ export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => 
           maxZoom: 19,
         }).addTo(map);
 
-      // Colori per tipo
-      const markers: any[] = [];
-      validPoints.forEach((point, idx) => {
-        const color = typeColors[point.type || 'attraction'] || DEFAULT_COLOR;
-        const emoji = typeEmoji[point.type || 'attraction'] || DEFAULT_EMOJI;
+        const markers: any[] = [];
 
-        const icon = L.divIcon({
-          html: `
-            <div style="
-              background: ${color};
-              color: white;
-              border-radius: 50% 50% 50% 0;
-              transform: rotate(-45deg);
-              width: 36px;
-              height: 36px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-              border: 2px solid white;
-              font-size: 14px;
-            ">
-              <span style="transform: rotate(45deg); display:block;">${emoji}</span>
-            </div>
-          `,
-          className: '',
-          iconSize: [36, 36],
-          iconAnchor: [18, 36],
-          popupAnchor: [0, -38],
-        });
+        // Draw route with arrows between city stops
+        if (cityPoints.length >= 2) {
+          const routeCoords: [number, number][] = cityPoints.map(p => [p.lat, p.lng]);
 
-        const marker = L.marker([point.lat, point.lng], { icon })
-          .addTo(map)
-          .bindPopup(`
-            <div style="font-family: Inter, sans-serif; min-width: 160px;">
-              <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 4px;">
-                ${point.type || 'Punto'}
-              </div>
-              <strong style="font-size: 14px; color: #1a1a1a;">${point.label}</strong>
-            </div>
-          `);
+          // Solid line connecting all stops
+          L.polyline(routeCoords, {
+            color: CITY_COLOR,
+            weight: 3,
+            opacity: 0.7,
+            dashArray: '0',
+          }).addTo(map);
 
-        markers.push(marker);
-      });
+          // Arrow heads at midpoint of each segment
+          for (let i = 0; i < routeCoords.length - 1; i++) {
+            const from = routeCoords[i];
+            const to = routeCoords[i + 1];
+            const midLat = (from[0] + to[0]) / 2;
+            const midLng = (from[1] + to[1]) / 2;
+            const angle = Math.atan2(to[1] - from[1], to[0] - from[0]) * (180 / Math.PI);
 
-      // Disegna la polyline dell'itinerario (solo punti attraction/activity in ordine)
-      const routePoints = validPoints
-        .filter((p) => p.type === 'attraction' || p.type === 'activity' || !p.type)
-        .map((p) => [p.lat, p.lng] as [number, number]);
+            const arrowIcon = L.divIcon({
+              html: `<div style="
+                transform: rotate(${angle}deg);
+                color: ${CITY_COLOR};
+                font-size: 18px;
+                line-height: 1;
+                text-shadow: 0 0 3px white, 0 0 3px white;
+              ">➤</div>`,
+              className: '',
+              iconSize: [20, 20],
+              iconAnchor: [10, 10],
+            });
+            L.marker([midLat, midLng], { icon: arrowIcon, interactive: false }).addTo(map);
+          }
 
-      if (routePoints.length > 1) {
-        L.polyline(routePoints, {
-          color: '#5a5a40',
-          weight: 2.5,
-          opacity: 0.7,
-          dashArray: '6, 10',
-        }).addTo(map);
-      }
+          // Numbered city markers
+          cityPoints.forEach((point, idx) => {
+            const isFirst = idx === 0;
+            const isLast = idx === cityPoints.length - 1;
+            const numLabel = isFirst ? '🛫' : isLast ? '🏠' : `${idx + 1}`;
 
-      // Fit bounds su tutti i marker
-      if (validPoints.length > 1) {
-        const group = L.featureGroup(markers);
-        map.fitBounds(group.getBounds().pad(0.15));
-      }
+            const icon = L.divIcon({
+              html: `
+                <div style="
+                  background: ${isFirst ? '#059669' : isLast ? '#dc2626' : CITY_BG};
+                  color: white;
+                  border-radius: 50%;
+                  width: 32px;
+                  height: 32px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+                  border: 3px solid white;
+                  font-size: ${isFirst || isLast ? '14px' : '13px'};
+                  font-weight: bold;
+                  font-family: Inter, sans-serif;
+                ">${numLabel}</div>
+              `,
+              className: '',
+              iconSize: [32, 32],
+              iconAnchor: [16, 16],
+              popupAnchor: [0, -18],
+            });
+
+            const marker = L.marker([point.lat, point.lng], { icon })
+              .addTo(map)
+              .bindPopup(`
+                <div style="font-family: Inter, sans-serif; min-width: 140px; text-align: center;">
+                  <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 2px;">
+                    ${isFirst ? 'Partenza' : isLast ? 'Ritorno' : 'Tappa ' + (idx + 1)}
+                  </div>
+                  <strong style="font-size: 15px; color: #1a1a1a;">${point.label}</strong>
+                </div>
+              `);
+            markers.push(marker);
+          });
+        } else {
+          // Fallback: show all valid points as generic markers
+          validPoints.forEach((point, idx) => {
+            const icon = L.divIcon({
+              html: `<div style="
+                background: ${CITY_BG};
+                color: white;
+                border-radius: 50% 50% 50% 0;
+                transform: rotate(-45deg);
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+                border: 2px solid white;
+                font-size: 13px;
+              "><span style="transform: rotate(45deg); display:block;">📍</span></div>`,
+              className: '',
+              iconSize: [32, 32],
+              iconAnchor: [16, 32],
+              popupAnchor: [0, -34],
+            });
+
+            const marker = L.marker([point.lat, point.lng], { icon })
+              .addTo(map)
+              .bindPopup(`
+                <div style="font-family: Inter, sans-serif; min-width: 160px;">
+                  <strong style="font-size: 14px; color: #1a1a1a;">${point.label}</strong>
+                </div>
+              `);
+            markers.push(marker);
+          });
+
+          // Simple polyline for fallback
+          if (validPoints.length > 1) {
+            L.polyline(validPoints.map(p => [p.lat, p.lng]), {
+              color: CITY_COLOR,
+              weight: 2.5,
+              opacity: 0.6,
+              dashArray: '6, 10',
+            }).addTo(map);
+          }
+        }
+
+        // Fit bounds
+        if (markers.length > 1) {
+          const group = L.featureGroup(markers);
+          map.fitBounds(group.getBounds().pad(0.15));
+        }
       } catch (e) {
         console.error('Error initializing map:', e);
       }
@@ -178,37 +221,29 @@ export const TravelMap: React.FC<TravelMapProps> = ({ points, destination }) => 
   return (
     <div className="relative">
       <div ref={mapRef} style={{ height: '480px', width: '100%', borderRadius: '1.5rem', overflow: 'hidden' }} />
-      {/* Legenda — only show types that are present in the data */}
-      {(() => {
-        const usedTypes = new Set(validPoints.map(p => p.type || 'attraction'));
-        const legendTypes = [
-          ['attraction', 'Attrazione'],
-          ['city', 'Città'],
-          ['hotel', 'Hotel'],
-          ['restaurant', 'Ristorante'],
-          ['activity', 'Attività'],
-          ['beach', 'Spiaggia'],
-          ['nature', 'Natura'],
-          ['port', 'Porto'],
-          ['museum', 'Museo'],
-          ['monument', 'Monumento'],
-        ] as const;
-        const visibleTypes = legendTypes.filter(([type]) => usedTypes.has(type));
-        if (visibleTypes.length <= 1) return null; // Don't show legend for single type
-        return (
-          <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur px-4 py-3 rounded-2xl shadow-lg border border-white/50 text-xs space-y-1.5 z-[1000]">
-            {visibleTypes.map(([type, label]) => (
-              <div key={type} className="flex items-center gap-2">
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ background: typeColors[type] || DEFAULT_COLOR }}
-                />
-                <span className="capitalize text-gray-600">{typeEmoji[type] || DEFAULT_EMOJI} {label}</span>
-              </div>
-            ))}
+      {/* Legend for city stops route */}
+      {cityPoints.length >= 2 && (
+        <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur px-4 py-3 rounded-2xl shadow-lg border border-white/50 text-xs space-y-1.5 z-[1000]">
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full" style={{ background: '#059669' }} />
+            <span className="text-gray-600">🛫 Partenza</span>
           </div>
-        );
-      })()}
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full" style={{ background: CITY_COLOR }} />
+            <span className="text-gray-600">🏙️ Tappa intermedia</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full" style={{ background: '#dc2626' }} />
+            <span className="text-gray-600">🏠 Ritorno</span>
+          </div>
+          {cityPoints.length > 2 && (
+            <div className="flex items-center gap-2">
+              <div style={{ width: '24px', height: '2px', background: CITY_COLOR }} />
+              <span className="text-gray-600">➤ Percorso</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
