@@ -248,22 +248,25 @@ export async function exportTripToPPTX(
       const col = i % cols;
       const row = Math.floor(i / cols);
       const x = 0.6 + col * (colW + 0.4);
-      const y = 1.1 + row * 2.0;
-      slide.addShape('roundRect', { x, y, w: colW, h: 1.7, fill: { color: C.warmBg }, rectRadius: 0.1 });
+      const y = 1.1 + row * 2.2;
 
-      // Attraction image from Unsplash
+      // Attraction image from Unsplash — placed ABOVE the card
       const attrImgUrl = lookupUnsplash(`${attr.name} ${dest}`, unsplashImages);
+      const imgH = 0.9; // image height
       if (attrImgUrl) {
-        safeImage(slide, { path: attrImgUrl, x: x + 0.05, y: y + 0.05, w: colW - 0.1, h: 0.85, sizing: { type: 'cover', w: colW - 0.1, h: 0.85 }, rounding: true });
+        safeImage(slide, { path: attrImgUrl, x, y, w: colW, h: imgH, sizing: { type: 'cover', w: colW, h: imgH }, rounding: true });
       }
 
-      const textStartY = attrImgUrl ? y + 0.95 : y + 0.1;
-      const nameFontSize = attrImgUrl ? 12 : 14;
-      slide.addText(attr.name, { x: x + 0.15, y: textStartY, w: colW - 0.3, h: 0.3, fontSize: nameFontSize, fontFace: FONT_SANS, color: C.ink, bold: true });
+      // Text card below the image (or at top if no image)
+      const cardY = attrImgUrl ? y + imgH + 0.05 : y;
+      const cardH = attrImgUrl ? 1.0 : 1.5;
+      slide.addShape('roundRect', { x, y: cardY, w: colW, h: cardH, fill: { color: C.warmBg }, rectRadius: 0.1 });
+
+      slide.addText(attr.name, { x: x + 0.15, y: cardY + 0.1, w: colW - 0.3, h: 0.3, fontSize: 13, fontFace: FONT_SANS, color: C.ink, bold: true });
       const sub: any[] = [];
       if (attr.estimatedVisitTime) sub.push({ text: `⏱ ${attr.estimatedVisitTime}`, options: { fontSize: 10, color: C.inkLight, breakLine: true } });
       sub.push({ text: attr.description, options: { fontSize: 10, color: C.inkMuted } });
-      slide.addText(sub, { x: x + 0.15, y: textStartY + 0.3, w: colW - 0.3, h: 0.55 });
+      slide.addText(sub, { x: x + 0.15, y: cardY + 0.4, w: colW - 0.3, h: cardH - 0.5 });
     });
 
     // Map points summary
@@ -276,15 +279,14 @@ export async function exportTripToPPTX(
         const row = Math.floor(i / 4);
         const x = 0.6 + col * 2.3;
         const y = 1.1 + row * 1.8;
-        if (y < 3.8) {
+        if (y < 3.6) {
           const mpImgUrl = lookupUnsplash(`${p.label} ${dest}`, unsplashImages);
+          // Label pill at top
+          slide2.addShape('roundRect', { x, y, w: 2.1, h: 0.5, fill: { color: C.warmBg }, rectRadius: 0.08 });
+          slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.05, w: 1.9, h: 0.4, fontSize: 11, fontFace: FONT_SANS, color: C.ink, bold: true, valign: 'middle' });
+          // Image below the label
           if (mpImgUrl) {
-            safeImage(slide2, { path: mpImgUrl, x, y, w: 2.1, h: 1.1, sizing: { type: 'cover', w: 2.1, h: 1.1 }, rounding: true });
-            slide2.addShape('rect', { x, y: y + 0.7, w: 2.1, h: 0.4, fill: { color: '000000', transparency: 40 } });
-            slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.72, w: 1.9, h: 0.35, fontSize: 11, fontFace: FONT_SANS, color: C.white, bold: true, valign: 'middle' });
-          } else {
-            slide2.addShape('roundRect', { x, y, w: 2.1, h: 0.8, fill: { color: C.warmBg }, rectRadius: 0.08 });
-            slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.05, w: 1.9, h: 0.7, fontSize: 12, fontFace: FONT_SANS, color: C.ink, valign: 'middle' });
+            safeImage(slide2, { path: mpImgUrl, x, y: y + 0.55, w: 2.1, h: 0.95, sizing: { type: 'cover', w: 2.1, h: 0.95 }, rounding: true });
           }
         }
       });
