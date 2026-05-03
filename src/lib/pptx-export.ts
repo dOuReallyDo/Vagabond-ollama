@@ -259,7 +259,7 @@ export async function exportTripToPPTX(
 
       // Text card below the image (or at top if no image)
       const cardY = attrImgUrl ? y + imgH + 0.05 : y;
-      const cardH = attrImgUrl ? 0.7 : 1.7;
+      const cardH = attrImgUrl ? 0.9 : 1.7;
       slide.addShape('roundRect', { x, y: cardY, w: colW, h: cardH, fill: { color: C.warmBg }, rectRadius: 0.1 });
 
       slide.addText(attr.name, { x: x + 0.15, y: cardY + 0.1, w: colW - 0.3, h: 0.3, fontSize: 13, fontFace: FONT_SANS, color: C.ink, bold: true });
