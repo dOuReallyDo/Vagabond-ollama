@@ -28,7 +28,7 @@ Il flusso legacy (monolitico) è ancora disponibile tramite feature flag `useV2F
 - **3-Step Flow**: Itinerario → Alloggi (selezionabili) → Budget con conferma progressiva
 - **Auto-retry su troncamento**: Se il JSON è troncato, ritenta con prompt più conciso
 - **Mappe Interattive**: Integrazione con Leaflet/OpenStreetMap
-- **Nominatim Geocoding**: Coordinate precise per le mappe tramite Nominatim (OpenStreetMap) — free tier, nessuna API key necessaria. **Cache-aware**: mapPoints stripped di prefissi descrittivi italiani, activities usano campo `location`, attractions provano nome poi nome+destinazione
+- **Nominatim Geocoding** — Coordinate precise per le mappe tramite Nominatim (OpenStreetMap) — free tier, nessuna API key necessaria. **Ottimizzato per l'italiano**: `stripItalianPrefix()` rimuove 30+ prefissi descrittivi ("Centro di Lisbona" → "Lisbona"), `CITY_NAME_MAP` risolve 50+ nomi italiani in nomi locali ("lisbona"→"Lisbon", "marsiglia"→"Marseille"), `extractPlaceName()` pipeline completa (strip prefix → split comma/paren → resolve city name), country code fallback dalla città di partenza quando la destinazione non contiene il nome del paese
 - **Ricerca Real-Time**: GLM-5.1 AI con web search per prezzi reali
 - **Budget Intelligence**: Calcolo automatico basato sulle selezioni utente, 5 categorie con tabelle strutturate per categoria
 - **Profilo Viaggiatore**: Età, interessi, ritmo, mobilità — itinerari personalizzati
@@ -116,7 +116,7 @@ src/
 │   ├── supabase.ts                  # Supabase client (persistSession: true)
 │   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
 │   ├── safeBrowsing.ts             # Google Safe Browsing API client + cache
-│   └── nominatim.ts                # Nominatim geocoding (free, no API key) — cache-aware: strip prefixes, use location field, name+dest fallback; no estimateDriveDurationMinutes (removed)
+│   └── nominatim.ts                # Nominatim geocoding (free, no API key) — stripItalianPrefix(), CITY_NAME_MAP (50+ Italian→local), extractPlaceName() pipeline, country code fallback from departureCity
 api/
 ├── config.ts                        # Vercel serverless: serves ZHIPU_API_KEY
 └── check-url.ts                     # Vercel serverless: Google Safe Browsing proxy
@@ -227,7 +227,7 @@ GLM-5.1 fabbrica deep link finti che 404. Il frontend **non li usa mai**:
 ## 🔮 Roadmap
 
 **✅ Completati:**
-- **Nominatim geocoding** — Usato per coordinate precise TravelMap Step 1 e distanze rotte auto in Step 2. Free tier, nessuna API key. Cache-aware: mapPoints stripped di prefissi italiani, activities usano `location`, attractions fallback name+destination. Duplicate city lookups skipped.
+- **Nominatim geocoding v2** — `stripItalianPrefix()` (30+ prefissi), `CITY_NAME_MAP` (50+ mappature italiano→locale), `extractPlaceName()` pipeline, country code fallback da departureCity. Risolve problemi come "Lisbona posizionata male" e "Lagos → Nigeria invece di Portogallo".
 - **Car route km/duration removed** — Car segments mostrano solo costo stimato e nota Google Maps. `estimateDriveDurationMinutes` rimosso, `generateCarSegments` passa `duration: null` e `distance: null`.
 - **TravelMap type support** — Tipi aggiuntivi: city, beach, nature, port, museum, monument con colori/emoji specifici. Legenda dinamica mostra solo i tipi presenti.
 
