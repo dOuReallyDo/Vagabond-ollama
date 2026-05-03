@@ -243,6 +243,68 @@ export async function geocodeItinerary(
     }
   }
 
+  // 4. Override mapPoints with cities extracted from itinerary locations (day-by-day)
+  //    This ensures the map shows the actual route cities with arrows, not random AI points
+  if (data.itinerary && Array.isArray(data.itinerary)) {
+    const seenCities = new Set<string>();
+    const cityRoute: { label: string; lat: number; lng: number }[] = [];
+
+    for (const day of data.itinerary) {
+      if (!day.activities || !Array.isArray(day.activities)) continue;
+      for (const act of day.activities) {
+        const loc = (act as any).location;
+        if (!loc || typeof loc !== 'string') continue;
+        // Skip generic locations
+        const GENERIC = ['casa', 'hotel', 'albergo', 'b&b', 'hostel', 'resort', 'appartamento', 'villa', 'campeggio', 'pernottamento', 'check-in', 'check-out', 'ricerca', 'arrivo', 'partenza', 'aeroporto', 'stazione'];
+        const locLower = loc.toLowerCase().trim();
+        if (GENERIC.some(g => locLower === g || locLower.startsWith(g + ' '))) continue;
+        // Extract city name: take first part before comma/paren
+        const cityName = loc.split(/[,(\-–—]/)[0].trim();
+        if (!cityName || cityName.length < 2) continue;
+        const key = cityName.toLowerCase();
+        if (!seenCities.has(key)) {
+          seenCities.add(key);
+          // Find coordinates: check existing mapPoints first, then geocode
+          const existing = data.mapPoints?.find((p: any) => p.label && p.label.toLowerCase() === key);
+          if (existing && existing.lat && existing.lng && existing.lat !== 0 && existing.lng !== 0) {
+            cityRoute.push({ label: cityName, lat: existing.lat, lng: existing.lng });
+          } else {
+            // Check activity geocoded coords cache
+            const geocoded = geocodeCache.get(`${key}|${countryCode || ''}`);
+            if (geocoded) {
+              cityRoute.push({ label: cityName, lat: geocoded.lat, lng: geocoded.lng });
+            } else {
+              cityRoute.push({ label: cityName, lat: 0, lng: 0 }); // placeholder, will geocode next
+            }
+          }
+        }
+      }
+    }
+
+    // Geocode any cityRoute entries that still have lat=0, lng=0
+    for (const city of cityRoute) {
+      if (city.lat === 0 && city.lng === 0) {
+        const result = await geocodePlace(city.label, countryCode);
+        if (result) {
+          city.lat = result.lat;
+          city.lng = result.lng;
+        }
+      }
+    }
+
+    // Only override mapPoints if we got at least 2 cities with valid coordinates
+    const validCities = cityRoute.filter(c => c.lat !== 0 && c.lng !== 0);
+    if (validCities.length >= 2) {
+      // Add departure city if it's the first location and matches the itinerary start
+      data.mapPoints = validCities.map(c => ({
+        lat: c.lat,
+        lng: c.lng,
+        label: c.label,
+        type: 'city',
+      }));
+    }
+  }
+
   return data;
 }
 
