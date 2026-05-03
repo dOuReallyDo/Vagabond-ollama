@@ -254,7 +254,7 @@ export async function exportTripToPPTX(
       const attrImgUrl = lookupUnsplash(`${attr.name} ${dest}`, unsplashImages);
       const imgH = 0.9; // image height
       if (attrImgUrl) {
-        safeImage(slide, { path: attrImgUrl, x, y, w: colW, h: imgH, sizing: { type: 'cover', w: colW, h: imgH }, rounding: true });
+        safeImage(slide, { path: attrImgUrl, x, y, w: colW, h: imgH, sizing: { type: 'cover', w: colW, h: imgH } });
       }
 
       // Text card below the image (or at top if no image)
@@ -286,7 +286,7 @@ export async function exportTripToPPTX(
           slide2.addText(`${emojiForType(p.type)} ${p.label}`, { x: x + 0.1, y: y + 0.05, w: 1.9, h: 0.4, fontSize: 11, fontFace: FONT_SANS, color: C.ink, bold: true, valign: 'middle' });
           // Image below the label
           if (mpImgUrl) {
-            safeImage(slide2, { path: mpImgUrl, x, y: y + 0.55, w: 2.1, h: 0.95, sizing: { type: 'cover', w: 2.1, h: 0.95 }, rounding: true });
+            safeImage(slide2, { path: mpImgUrl, x, y: y + 0.55, w: 2.1, h: 0.95, sizing: { type: 'cover', w: 2.1, h: 0.95 } });
           }
         }
       });
@@ -325,7 +325,7 @@ export async function exportTripToPPTX(
 
         // Image on the right, text on the left
         if (hasImg) {
-          safeImage(slide, { path: resolvedImgUrl!, x: cardX + cardW + 0.15, y: actY, w: 1.15, h: 0.75, sizing: { type: 'cover', w: 1.15, h: 0.75 }, rounding: true });
+          safeImage(slide, { path: resolvedImgUrl!, x: cardX + cardW + 0.15, y: actY, w: 1.15, h: 0.75, sizing: { type: 'cover', w: 1.15, h: 0.75 } });
         }
 
         slide.addShape('roundRect', { x: cardX, y: actY, w: cardW, h: 0.75, fill: { color: C.warmBg2 }, rectRadius: 0.08 });
@@ -366,7 +366,7 @@ export async function exportTripToPPTX(
         // Hotel image on the right
         const hasImg = !!opt.imageUrl;
         if (hasImg) {
-          safeImage(slide, { path: opt.imageUrl!, x: 8.2, y: y + 0.05, w: 1.2, h: 1.05, sizing: { type: 'cover', w: 1.2, h: 1.05 }, rounding: true });
+          safeImage(slide, { path: opt.imageUrl!, x: 8.2, y: y + 0.05, w: 1.2, h: 1.05, sizing: { type: 'cover', w: 1.2, h: 1.05 } });
         }
 
         const textW = hasImg ? 7.4 : 8.7;
@@ -405,7 +405,7 @@ export async function exportTripToPPTX(
         // Restaurant image
         const hasImg = !!r.imageUrl;
         if (hasImg) {
-          safeImage(slide, { path: r.imageUrl!, x: 8.5, y: y - 0.05, w: 0.9, h: 0.6, sizing: { type: 'cover', w: 0.9, h: 0.6 }, rounding: true });
+          safeImage(slide, { path: r.imageUrl!, x: 8.5, y: y - 0.05, w: 0.9, h: 0.6, sizing: { type: 'cover', w: 0.9, h: 0.6 } });
         }
 
         const ratingStr = r.rating ? ` · ⭐${r.rating}` : '';
