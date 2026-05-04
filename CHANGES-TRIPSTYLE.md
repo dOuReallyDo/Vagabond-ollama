@@ -1,69 +1,117 @@
-# tripStyle Feature — Commit 2337589
+# Vagabond-ollama — Changelog
 
-## Data
-4 maggio 2026
+## 4 maggio 2026 — tripStyle + geocoding + hotel search
 
-## Cosa è cambiato
+### Commit sequence
+1. `2337589` — feat: tripStyle (relax/balanced/adventure)
+2. `3c64aca` — fix: relax mode merges all stops into one hotel
+3. `ee66c58` — fix: geocoding proximity + hotel location constraint
+4. `8764847` — feat: accommodation search (search & add hotel per stop)
+5. `6026d88` — fix: vercel.json rewrite catching /assets/* (Leaflet 404)
+6. `5c9fe85` — fix: geocoding context-first strategy + 50km proximity
 
-### 1. `src/shared/contract.ts`
-- Aggiunto campo `tripStyle: z.enum(["relax", "balanced", "adventure"])` al `TravelInputsSchema`
-- Posizionato dopo `stopover`, prima di `preferredStops`
+---
 
-### 2. `src/App.tsx`
+### 1. tripStyle — Stile di viaggio (`src/shared/contract.ts`, `src/App.tsx`, `src/services/step1Service.ts`)
 
-**Import** — aggiunto `Palmtree, Tent, Compass` da lucide-react
+**Schema** (`contract.ts`):
+- Aggiunto `tripStyle: z.enum(["relax", "balanced", "adventure"])` dopo `stopover`
+- `preferredStops` rimane opzionale
 
-**State** — aggiunto `tripStyle: 'balanced'` come default in `useState`
+**UI** (`App.tsx`):
+- 3 card stilizzate (🌴 Relax / 📍 Equilibrato / ⛺ Avventura) al posto del +/- counter
+- Relax → `preferredStops=1` hardcoded, selettore tappe nascosto
+- Equilibrato → preferredStops default 2, label "≥2 notti"
+- Avventura → preferredStops default 3, label "anche 1 notte"
 
-**UI** — rimpiazzato il +/- counter "Quante tappe vuoi fare?" con:
-- **3 card stilizzate** (grid 3 colonne):
-  - 🌴 Relax (`Palmtree`) → "1 città base, escursioni da lì"
-  - 📍 Equilibrato (`MapPin`) → "Alcune tappe, ≥2 notti ciascuna"
-  - ⛺ Avventura (`Tent`) → "Tante tappe, anche 1 notte"
-- Selezione: bordo + colore cambiati per la card attiva
-- Click su Relax → `preferredStops = 1` e selettore tappe nascosto
-- Click su Balanced/Adventure → selettore tappe visibile con default diversi (2 e 3)
-- Etichetta tappe dinamica: adventurous dice "tappe", balanced dice "città"
+**Prompt** (`step1Service.ts`):
+- Relax: "1 sola città base, mai cambiare hotel, escursioni giornaliere (day-trip)"
+- Avventura: "tappe anche di 1 notte, ~N/2+1 tappe, ogni giorno città diversa"
+- Equilibrato: comportamento precedente (≥2 notti, max N/2)
 
-**Condizionamento preferredStops**:
-- `inputs.tripStyle !== 'relax'` → mostra selettore tappe
-- Avventura: label "(anche 1 notte per tappa)", default 3
-- Equilibrato: label "(ogni tappa ≥ 2 notti)", default 2
-
-### 3. `src/services/step1Service.ts`
-
-**Dettagli viaggio** (in entrambi i prompt, principale e compatto):
-- Aggiunta riga: `- Stile viaggio: Relax/Avventura/Equilibrato (label descrittivo)`
-- `Numero tappe` adattato: Relax → "1 (città base)", altri → preferredStops o "auto"
-
-**Regole tappe** — prompt principale:
-- **Relax**: "1 sola città base per tutto il viaggio. Mai cambiare hotel. Escursioni giornaliere (day-trip)."
-- **Avventura**: "Tappe anche di 1 notte. ~N/2+1 tappe. Ogni giorno può essere in una città diversa."
-- **Equilibrato**: comportamento precedente (≥2 notti, max N/2)
-
-**Regole tappe** — prompt compatto:
-- Stessa logica con sintassi condensata per risparmiare tokens
-
-## Comportamento per stile
+**Comportamento per stile**:
 
 | Stile | preferredStops | Vincolo notti | Descrizione |
 |-------|---------------|---------------|-------------|
 | Relax | 1 (hardcoded) | N-1 notti nella stessa città | Città base + day-trip |
-| Balanced | default 2, selezionabile 1-10 | ≥ 2 notti per tappa | Comportamento originale |
-| Adventure | default 3, selezionabile 1-10 | 1 notte permessa | Massimo spostamento |
+| Balanced | default 2, 1-10 | ≥ 2 notti per tappa | Comportamento originale |
+| Adventure | default 3, 1-10 | 1 notte permessa | Massimo spostamento |
 
-## Step2 compatibilità
-Step2 calcola le notti per stop dai `dayIndices` dell'itinerario generato. Nessun vincolo hardcoded sulle notti minime → le tappe da 1 notte generate dallo stile Avventura vengono gestite correttamente.
+---
 
-**Fix 3c64aca**: `extractStops()` ora riceve `tripStyle`. In modalità Relax, se rileva >1 stop (dovuto a variazioni AI tipo "Anacapri" vs "Capri centro"), li fonde in un unico stop → 1 solo hotel per tutto il viaggio.
+### 2. Relax stop merge (`src/services/step2Service.ts`)
 
-## Rollback
+`extractStops(itinerary, tripStyle)`:
+- Se `tripStyle === 'relax'` e >1 stop rilevati (AI genera "Anacapri", "Capri centro"), li fonde in 1 unico stop
+- Usa lo stop con più `dayIndices` come nome principale
+- Risultato: 1 ricerca albergo → 1 hotel per tutto il viaggio
+
+---
+
+### 3. Geocoding proximity fix (`src/lib/nominatim.ts`)
+
+**Problema**: "Marina Grande" geocodificata a Scilla (Calabria, 285km), "Marina Piccola" a Ardea (Lazio, 182km). Anche con `countrycodes=it`, Nominatim ritorna il risultato con più importance, non il più vicino alla destinazione.
+
+**Fix — Context-first strategy**:
+1. Geocodifica prima la destinazione principale (es. "Capri") per ottenere coordinate di riferimento
+2. Per ogni sotto-luogo, prova PRIMA con contesto destinazione: `"Marina Grande, Capri"` → risultato corretto (40.556°)
+3. Fallback senza contesto solo se il contesto fallisce
+4. Prossimità: se il risultato è a >50km dalla destinazione, scartato (mantiene coordinate AI)
+5. Applicato a tutte e 4 le sezioni: mapPoints, attractions, activities, city route
+
+**Raggio**: ridotto da 100km a 50km (Sorrento è solo ~17km da Capri e passava il check a 100km)
+
+---
+
+### 4. Hotel location constraint (`src/services/step2Service.ts`)
+
+Prompt Step2 ora dice:
+- "⚠️ REGOLA FONDAMENTALE: Gli alloggi DEVONO essere a {stopName} o nel raggio di 5km"
+- "NON proporre hotel in altre città, anche se hanno '{stopName}' nel nome"
+- "ESATTAMENTE 3 opzioni con le recensioni migliori e rating ≥4.0"
+
+---
+
+### 5. Accommodation search — Cerca alloggio (`src/services/accommodationSearch.ts`, `src/components/Step2AccommodationView.tsx`, `src/App.tsx`)
+
+**Nuovo servizio** `accommodationSearch.ts`:
+- Chiama GLM-5.1 con `web_search` per verificare esistenza hotel, leggere recensioni (pros/cons), stimare prezzo
+- Ritorna `{ exists, summary, pros, cons, estimatedPricePerNight, bookingUrl }`
+- Adattato da Vagabond-Dou (usava Anthropic Claude, ora usa Zhipu GLM-5.1)
+
+**Componente** `AccommodationReviewer`:
+- Input nome alloggio + select tappa → tasto "Verifica"
+- Mostra: esistenza, summary, pros/cons, link Booking/TripAdvisor
+- Tasto "Aggiungi alla tappa" → inserisce hotel nelle opzioni della tappa
+- Disabilitato in readOnly (viaggi salvati completati)
+- Posizionato dopo la sezione alloggi, prima dei ristoranti
+
+**Callback** `onAccommodationAdd` in App.tsx:
+- Aggiunge hotel a `step2Data.accommodations[stopIndex].options`
+- Aggiorna stato React
+
+---
+
+### 6. Vercel deploy fix (`vercel.json`)
+
+**Problema**: regola `{ "source": "/(.*)", "destination": "/index.html" }` intercettava `/assets/leaflet-src-*.js` ritornando HTML → MIME type error
+
+**Fix**: aggiunta regola `{ "source": "/assets/(.*)", "destination": "/assets/$1" }` PRIMA della catch-all. Cache-Control immutable per assets statici.
+
+---
+
+### File toccati (tutti i commit)
+- `src/shared/contract.ts` — tripStyle enum
+- `src/App.tsx` — tripStyle UI + AccommodationReviewer callback
+- `src/services/step1Service.ts` — prompt differenziato per stile
+- `src/services/step2Service.ts` — extractStops con tripStyle + hotel prompt vincolante
+- `src/services/accommodationSearch.ts` — nuovo servizio ricerca alloggi
+- `src/components/Step2AccommodationView.tsx` — AccommodationReviewer component + onAccommodationAdd prop
+- `src/lib/nominatim.ts` — context-first geocoding + 50km proximity
+- `vercel.json` — assets rewrite rule
+
+### Rollback
 ```
-git revert 2337589
+git revert 5c9fe85..2337589  # revert all
+git checkout ca77750          # clean state before all changes
 ```
-Oppure il pre-commit è `ca77750` (working tree pulito).
-
-## File toccati
-- `src/shared/contract.ts` (+1 riga)
-- `src/App.tsx` (+43/-7 righe)
-- `src/services/step1Service.ts` (+16/-7 righe)
