@@ -55,6 +55,8 @@
 ## Step2 compatibilità
 Step2 calcola le notti per stop dai `dayIndices` dell'itinerario generato. Nessun vincolo hardcoded sulle notti minime → le tappe da 1 notte generate dallo stile Avventura vengono gestite correttamente.
 
+**Fix 3c64aca**: `extractStops()` ora riceve `tripStyle`. In modalità Relax, se rileva >1 stop (dovuto a variazioni AI tipo "Anacapri" vs "Capri centro"), li fonde in un unico stop → 1 solo hotel per tutto il viaggio.
+
 ## Rollback
 ```
 git revert 2337589
