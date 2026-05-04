@@ -3711,6 +3711,18 @@ export default function App() {
               onBack={viewingSavedTrip ? () => setActiveStep(1) : () => { setActiveStep(1); setStep2Confirmed(false); }}
               onAccommodationSelect={viewingSavedTrip ? () => {} : handleAccommodationSelect}
               onFlightSelect={viewingSavedTrip ? () => {} : handleFlightSelect}
+              onAccommodationAdd={viewingSavedTrip ? undefined : (hotel, stopIndex) => {
+                if (!step2Data) return;
+                const updated = { ...step2Data };
+                if (updated.accommodations && updated.accommodations[stopIndex]) {
+                  const updatedAccommodations = [...updated.accommodations];
+                  const updatedStop = { ...updatedAccommodations[stopIndex] };
+                  updatedStop.options = [...updatedStop.options, hotel];
+                  updatedAccommodations[stopIndex] = updatedStop;
+                  updated.accommodations = updatedAccommodations;
+                  setStep2Data(updated);
+                }
+              }}
               readOnly={viewingSavedTrip}
               onNavigateNext={() => {
                 setActiveStep(3);
