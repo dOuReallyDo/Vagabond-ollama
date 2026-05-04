@@ -400,7 +400,7 @@ export async function geocodeItinerary(
   const destCity = destination.split(',')[0].trim();
   const destResolved = resolveCityName(destCity);
   const destCoords = await geocodePlace(destResolved, effectiveCountryCode);
-  const MAX_DEVIATION_KM = 100; // Sub-locations must be within 100km of main destination
+  const MAX_DEVIATION_KM = 50; // Sub-locations must be within 50km of main destination
 
   // Helper: check if geocoded coords are plausible (within MAX_DEVIATION_KM of destination)
   function isWithinProximity(lat: number, lng: number): boolean {
@@ -423,17 +423,20 @@ export async function geocodeItinerary(
 
     for (const label of uniqueLabels) {
       const placeName = extractPlaceName(label);
-      const result = await geocodePlace(placeName, effectiveCountryCode);
-      if (result && isWithinProximity(result.lat, result.lng)) {
-        labelCoords.set(label, result);
-      } else if (result && destCoords) {
-        // Proximity failed: try geocoding with destination context (e.g. "Marina Grande, Capri")
+      // Try with destination context FIRST (e.g. "Marina Grande, Capri")
+      if (destCoords) {
         const contextResult = await geocodePlace(`${placeName}, ${destCity}`, effectiveCountryCode);
         if (contextResult && isWithinProximity(contextResult.lat, contextResult.lng)) {
           labelCoords.set(label, contextResult);
+          continue;
         }
-        // If context also fails, keep AI coords (fallback)
       }
+      // Fallback: try without context
+      const result = await geocodePlace(placeName, effectiveCountryCode);
+      if (result && isWithinProximity(result.lat, result.lng)) {
+        labelCoords.set(label, result);
+      }
+      // If both fail proximity, keep AI coords (fallback)
     }
 
     // Apply coordinates
@@ -455,19 +458,21 @@ export async function geocodeItinerary(
       if (!attraction.name) continue;
       const cleanName = extractPlaceName(attraction.name);
       
-      // Try just the attraction name first (more specific = better match)
+      // Try with destination context FIRST (e.g. "Grotta Azzurra, Capri")
+      if (destCoords) {
+        const contextResult = await geocodePlace(`${cleanName}, ${destCity}`, effectiveCountryCode);
+        if (contextResult && isWithinProximity(contextResult.lat, contextResult.lng)) {
+          attraction.lat = contextResult.lat;
+          attraction.lng = contextResult.lng;
+          continue;
+        }
+      }
+
+      // Fallback: try just the attraction name
       const result = await geocodePlace(cleanName, effectiveCountryCode);
       if (result && isWithinProximity(result.lat, result.lng)) {
         attraction.lat = result.lat;
         attraction.lng = result.lng;
-        continue;
-      }
-      // Fallback: name + destination city
-      const searchName = `${cleanName}, ${destCity}`;
-      const result2 = await geocodePlace(searchName, effectiveCountryCode);
-      if (result2 && isWithinProximity(result2.lat, result2.lng)) {
-        attraction.lat = result2.lat;
-        attraction.lng = result2.lng;
       }
       // If both fail proximity, keep AI-provided coords
     }
@@ -497,20 +502,24 @@ export async function geocodeItinerary(
           continue;
         }
 
-        // Try geocoding the city
-        const result = await geocodePlace(cityName, effectiveCountryCode);
-        if (result && isWithinProximity(result.lat, result.lng)) {
-          activity.lat = result.lat;
-          activity.lng = result.lng;
-        } else if (destCoords) {
-          // Proximity failed: try with destination context (e.g. "Marina Grande, Capri")
+        // Strategy: try with destination context FIRST (e.g. "Marina Grande, Capri")
+        // because sub-location names are ambiguous ("Marina Grande" alone → Sorrento, not Capri)
+        if (destCoords) {
           const contextResult = await geocodePlace(`${cityName}, ${destCity}`, effectiveCountryCode);
           if (contextResult && isWithinProximity(contextResult.lat, contextResult.lng)) {
             activity.lat = contextResult.lat;
             activity.lng = contextResult.lng;
+            continue;
           }
-          // If context also fails proximity, keep AI coords
         }
+
+        // Fallback: try geocoding the city name alone
+        const result = await geocodePlace(cityName, effectiveCountryCode);
+        if (result && isWithinProximity(result.lat, result.lng)) {
+          activity.lat = result.lat;
+          activity.lng = result.lng;
+        }
+        // If both fail proximity, keep AI coords
       }
     }
   }
@@ -563,16 +572,22 @@ export async function geocodeItinerary(
     // Geocode any cityRoute entries that still have lat=0, lng=0
     for (const city of cityRoute) {
       if (city.lat === 0 && city.lng === 0) {
-        const result = await geocodePlace(city.label, effectiveCountryCode);
-        if (result && isWithinProximity(result.lat, result.lng)) {
-          city.lat = result.lat;
-          city.lng = result.lng;
-        } else if (destCoords) {
-          // Proximity failed: try with destination context
+        // Try with destination context first (e.g. "Marina Grande, Capri")
+        let geocoded = false;
+        if (destCoords) {
           const contextResult = await geocodePlace(`${city.label}, ${destCity}`, effectiveCountryCode);
           if (contextResult && isWithinProximity(contextResult.lat, contextResult.lng)) {
             city.lat = contextResult.lat;
             city.lng = contextResult.lng;
+            geocoded = true;
+          }
+        }
+        // Fallback: try without context
+        if (!geocoded) {
+          const result = await geocodePlace(city.label, effectiveCountryCode);
+          if (result && isWithinProximity(result.lat, result.lng)) {
+            city.lat = result.lat;
+            city.lng = result.lng;
           }
         }
       }
