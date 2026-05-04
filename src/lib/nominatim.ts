@@ -57,10 +57,31 @@ const ITALIAN_PREFIXES = [
   /^valle\s+(di|del|della|dell'|dei)\s*/i,
   /^parco\s+(nazionale\s+di|regionale\s+di|di|del|della|dell'|nazionale\s+del)\s*/i,
   /^parco\s+/i,
+  /^riserva\s+(naturale\s+di|naturale\s+del|statale\s+di|di|del|della|naturale)\s*/i,
+  /^riserva\s+/i,
+  /^oasi\s+(naturale\s+di|di|del|della)\s*/i,
+  /^oasi\s+/i,
+  /^santuario\s+(di|del|della)\s*/i,
+  /^monumento\s+(a|di|del|della)\s*/i,
+  /^area\s+(marina\s+protetta|naturale\s+di|protetta\s+di|di|del|della)\s*/i,
   /^arrivo\s+a\s*/i,
   /^partenza\s+da\s*/i,
   /^visita\s+a\s*/i,
   /^escursione\s+a\s*/i,
+  /^abbazia\s+(di|del|della|dei)\s*/i,
+  /^basilica\s+(di|del|della|dei|san|santa|santo)\s*/i,
+  /^chiesa\s+(di|del|della|dei|san|santa|santo)\s*/i,
+  /^cattedrale\s+(di|del|della)\s*/i,
+  /^duomo\s+(di|del|della)\s*/i,
+  /^faro\s+(di|del|della)\s*/i,
+  /^faro\s+/i,
+  /^spiaggia\s+(di|del|della|dei)\s*/i,
+  /^spiaggia\s+/i,
+  /^portico\s+(di|del|della)\s*/i,
+  /^fondamenta\s+(di|del|della|dei|degli)\s*/i,
+  /^campus\s+(di|del|della)\s*/i,
+  /^piazzale\s+(di|del|della)\s*/i,
+  /^riva\s+(di|del|della)\s*/i,
   /^giro\s+(di|del|della|dei|degli|delle)\s+/i,
   /^passeggiata\s+(a|in|per)\s*/i,
   /^tour\s+(di|del|della|dei|degli|delle)\s+/i,
@@ -245,6 +266,40 @@ function detectCountryCode(location: string): string | undefined {
     'laos': 'la',
     'myanmar': 'mm',
     'sudafrica': 'za', 'south africa': 'za',
+    // Cape Verde / Cabo Verde
+    'capo verde': 'cv', 'cabo verde': 'cv', 'cape verde': 'cv',
+    'capoverde': 'cv',
+    // Caribbean / Atlantic islands
+    'madera': 'pt', // Madeira is Portugal
+    'azzorre': 'pt', // Azores is Portugal
+    'canarie': 'es', 'isole canarie': 'es',
+    // Other African
+    'kenya': 'ke', 'kenia': 'ke',
+    'tanzania': 'tz',
+    'mozambico': 'mz', 'mozambique': 'mz',
+    'senegal': 'sn',
+    'ghana': 'gh',
+    'nigeria': 'ng',
+    'etioia': 'et', 'ethiopia': 'et',
+    'tunisia': 'tn',
+    'algeria': 'dz',
+    // Central America / Caribbean
+    'cub': 'cu', 'cuba': 'cu',
+    'repubblica dominicana': 'do', 'dominican republic': 'do',
+    'giamaica': 'jm', 'jamaica': 'jm',
+    'costa rica': 'cr',
+    'panamá': 'pa', 'panama': 'pa',
+    // Middle East
+    'emirati arabi uniti': 'ae', 'emirati': 'ae', 'uae': 'ae',
+    'dubai': 'ae',
+    'oman': 'om',
+    'qatar': 'qa',
+    'giordania': 'jo', 'jordan': 'jo',
+    'libano': 'lb', 'lebanon': 'lb',
+    // More Asia
+    'taiwan': 'tw',
+    'hong kong': 'hk',
+    'macao': 'mo',
   };
 
   const lower = location.toLowerCase();
@@ -344,6 +399,18 @@ const CITY_NAME_MAP: Record<string, string> = {
   'capo verde': 'Cape Verde',
   'madera': 'Madeira',
   'azzorre': 'Azores',
+  // Cape Verde cities
+  'boa vista': 'Boa Vista, Cape Verde',
+  'sal rei': 'Sal Rei, Cape Verde',
+  'sal': 'Sal, Cape Verde',
+  'santa maria': 'Santa Maria, Cape Verde',
+  'santo antao': 'Santo Antão, Cape Verde',
+  'sao vicente': 'São Vicente, Cape Verde',
+  'mindelo': 'Mindelo, Cape Verde',
+  'santiago': 'Santiago, Cape Verde',
+  'praia': 'Praia, Cape Verde',
+  'fogo': 'Fogo, Cape Verde',
+  'maio': 'Maio, Cape Verde',
   // Indonesia / SE Asia
   'komodo': 'Komodo',
   'bali': 'Bali',
@@ -439,13 +506,45 @@ export async function geocodeItinerary(
   const destCityRaw = destination.split(',')[0].trim();
   const destCity = destCityRaw.replace(/\s*\(.*?\)\s*/g, '').trim() || destCityRaw;
   const destResolved = resolveCityName(destCity);
-  const destCoords = await geocodePlace(destResolved, effectiveCountryCode);
+  let destCoords = await geocodePlace(destResolved, effectiveCountryCode);
   
+  // Validate destCoords against AI-generated mapPoints center.
+  // If Nominatim geocodes the destination in the wrong country (e.g. "Boa Vista" → Brazil
+  // instead of Cape Verde), all proximity checks will be wrong. We compare with the centroid
+  // of AI mapPoints — if they're >1000km apart, Nominatim is wrong and we use AI center.
+  if (destCoords && data.mapPoints && Array.isArray(data.mapPoints)) {
+    const aiPoints = data.mapPoints.filter(
+      (p: any) => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)
+    );
+    if (aiPoints.length >= 2) {
+      const aiCenterLat = aiPoints.reduce((s: number, p: any) => s + p.lat, 0) / aiPoints.length;
+      const aiCenterLng = aiPoints.reduce((s: number, p: any) => s + p.lng, 0) / aiPoints.length;
+      const distFromAiCenter = haversineKm(destCoords.lat, destCoords.lng, aiCenterLat, aiCenterLng);
+      if (distFromAiCenter > 1000) {
+        console.warn(`[Nominatim] Destination geocoded ${distFromAiCenter.toFixed(0)}km from AI mapPoints center — Nominatim likely wrong, using AI center as reference`);
+        destCoords = { lat: aiCenterLat, lng: aiCenterLng };
+      }
+    }
+  }
+  // If destCoords is still null but we have AI mapPoints, use their center
+  if (!destCoords && data.mapPoints && Array.isArray(data.mapPoints)) {
+    const aiPoints = data.mapPoints.filter(
+      (p: any) => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)
+    );
+    if (aiPoints.length >= 2) {
+      destCoords = {
+        lat: aiPoints.reduce((s: number, p: any) => s + p.lat, 0) / aiPoints.length,
+        lng: aiPoints.reduce((s: number, p: any) => s + p.lng, 0) / aiPoints.length,
+      };
+      console.warn(`[Nominatim] Destination geocode failed, using AI mapPoints center as reference`);
+    }
+  }
+
   // Dynamic proximity threshold based on destination characteristics:
   // - Archipelago/Island nations (Indonesia, Philippines, etc.): 500km — islands are far apart
   // - Large countries (USA, China, Australia, Brazil, India, Russia): 300km
   // - European/medium countries (default): 50km
-  const ARCHIPELAGO_COUNTRIES = ['id', 'ph', 'pg', 'nz', 'jp', 'my', 'lk'];
+  const ARCHIPELAGO_COUNTRIES = ['id', 'ph', 'pg', 'nz', 'jp', 'my', 'lk', 'cv'];
   const LARGE_COUNTRIES = ['us', 'cn', 'au', 'br', 'in', 'ru', 'ca', 'mx', 'ar'];
   const MAX_DEVIATION_KM = ARCHIPELAGO_COUNTRIES.includes(effectiveCountryCode || '')
     ? 500
