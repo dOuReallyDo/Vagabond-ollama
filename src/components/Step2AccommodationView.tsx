@@ -20,7 +20,7 @@ import type { AccommodationTransport, AccommodationStop, RestaurantStop, FlightS
 import type { TravelInputs } from '../shared/contract';
 import type { ItineraryDraft } from '../shared/step1-contract';
 import { isWhitelistedUrl, getBookingSearchUrl, getBookingSearchUrlWithDates, getTripAdvisorSearchUrl, getGoogleSearchUrl, getAirlineSearchUrl } from '../lib/urlSafety';
-import { summarizeAccommodationReviews } from '../services/accommodationSearch';
+// accommodationSearch temporarily disabled — GLM-5.1 web_search insufficient for hotel verification
 
 // ─── STAR RATING ────────────────────────────────────────────────────────────
 
@@ -524,201 +524,10 @@ function FlightCard({
   );
 }
 
-// ─── ACCOMMODATION REVIEWER — Search & add hotel ────────────────────────────
-
-function AccommodationReviewer({
-  accommodations,
-  inputs,
-  onAdd,
-}: {
-  accommodations: AccommodationStop[];
-  inputs: TravelInputs;
-  onAdd?: (hotel: AccommodationStop['options'][0], stopIndex: number) => void;
-}) {
-  const [name, setName] = useState('');
-  const [stopIndex, setStopIndex] = useState<number>(0);
-  const [loading, setLoading] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name) return;
-
-    const selectedStop = accommodations[stopIndex];
-    if (!selectedStop) return;
-
-    // Calculate dates for the specific stop
-    let currentOffset = 0;
-    for (let i = 0; i < stopIndex; i++) {
-      currentOffset += accommodations[i].nights || 0;
-    }
-    const start = new Date(inputs.startDate);
-    const stopStart = new Date(start);
-    stopStart.setDate(start.getDate() + currentOffset);
-    const stopEnd = new Date(stopStart);
-    stopEnd.setDate(stopStart.getDate() + (selectedStop.nights || 1));
-
-    const formatDate = (d: Date) => d.toISOString().split('T')[0];
-
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const data = await summarizeAccommodationReviews(
-        name,
-        selectedStop.stopName,
-        formatDate(stopStart),
-        formatDate(stopEnd),
-        inputs.people
-      );
-
-      if (data.exists === false) {
-        setError(`L'alloggio "${name}" non sembra esistere a ${selectedStop.stopName}. Verifica il nome o la tappa.`);
-      } else {
-        setResult(data);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Errore durante la ricerca delle recensioni.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAdd = () => {
-    if (onAdd && result && accommodations[stopIndex]) {
-      onAdd(
-        {
-          name: name,
-          type: 'Hotel',
-          rating: 8.5,
-          reviewSummary: result.summary,
-          estimatedPricePerNight: result.estimatedPricePerNight || 100,
-          bookingUrl: result.bookingUrl || getBookingSearchUrl(name, accommodations[stopIndex].stopName),
-          address: accommodations[stopIndex].stopName,
-          amenities: [],
-          stars: 4,
-        },
-        stopIndex
-      );
-      setResult(null);
-      setName('');
-    }
-  };
-
-  return (
-    <div className="glass p-6 rounded-2xl mt-6">
-      <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-        <Search className="w-4 h-4 text-brand-accent" /> Cerca un nuovo alloggio
-      </h3>
-      <p className="text-xs text-brand-ink/50 mb-4">
-        Inserisci il nome di un alloggio e seleziona la tappa per verificare se esiste e leggere le recensioni.
-      </p>
-      <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3 mb-4">
-        <input
-          type="text"
-          placeholder="Nome alloggio (es. Hotel Punta Tragara)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="flex-1 bg-white border border-brand-ink/10 rounded-xl px-4 py-2.5 text-sm focus:border-brand-accent outline-none"
-          required
-        />
-        <select
-          value={stopIndex}
-          onChange={(e) => setStopIndex(parseInt(e.target.value))}
-          className="bg-white border border-brand-ink/10 rounded-xl px-4 py-2.5 text-sm focus:border-brand-accent outline-none appearance-none cursor-pointer"
-          required
-        >
-          {accommodations.map((stop, idx) => (
-            <option key={idx} value={idx}>
-              {stop.stopName}
-            </option>
-          ))}
-        </select>
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-brand-ink text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-brand-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-          Verifica
-        </button>
-      </form>
-
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-start gap-2 mb-4"
-        >
-          <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-red-700 text-xs">{error}</p>
-        </motion.div>
-      )}
-
-      {result && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl p-4 border border-brand-ink/5">
-          <div className="flex items-center gap-2 mb-3">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <h4 className="font-bold text-sm text-brand-ink">Alloggio trovato a {accommodations[stopIndex].stopName}</h4>
-          </div>
-          <p className="text-xs leading-relaxed mb-4">{result.summary}</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-            <div>
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-2">Punti di forza</h4>
-              <ul className="space-y-1">
-                {(result.pros || []).map((pro: string, i: number) => (
-                  <li key={i} className="text-xs flex items-start gap-1.5">
-                    <Plus className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" /> {pro}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-red-600 mb-2">Punti deboli</h4>
-              <ul className="space-y-1">
-                {(result.cons || []).map((con: string, i: number) => (
-                  <li key={i} className="text-xs flex items-start gap-1.5">
-                    <Minus className="w-3 h-3 text-red-500 shrink-0 mt-0.5" /> {con}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-brand-ink/5 pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
-              <a
-                href={getBookingSearchUrl(name, accommodations[stopIndex].stopName)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[10px] bg-brand-ink/5 hover:bg-brand-ink/10 px-2 py-1 rounded-full flex items-center gap-1 transition-colors"
-              >
-                Booking.com <ExternalLink className="w-2.5 h-2.5" />
-              </a>
-              <a
-                href={getTripAdvisorSearchUrl(name, accommodations[stopIndex].stopName)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[10px] bg-brand-ink/5 hover:bg-brand-ink/10 px-2 py-1 rounded-full flex items-center gap-1 transition-colors"
-              >
-                TripAdvisor <ExternalLink className="w-2.5 h-2.5" />
-              </a>
-            </div>
-            {onAdd && (
-              <button
-                onClick={handleAdd}
-                className="bg-brand-ink text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-brand-ink/90 transition-colors flex items-center justify-center gap-2 shrink-0"
-              >
-                <Plus className="w-3 h-3" /> Aggiungi alla tappa
-              </button>
-            )}
-          </div>
-        </motion.div>
-      )}
-    </div>
-  );
-}
+// ─── ACCOMMODATION REVIEWER — DISABLED ──────────────────────────────
+// GLM-5.1 web_search insufficient for hotel verification.
+// TODO: re-evaluate with stronger model or Booking.com API integration.
+// Original code preserved in accommodationSearch.ts for future reference.
 
 // ─── RUNNING TOTAL BAR ────────────────────────────────────────────────────────
 
@@ -1083,14 +892,7 @@ export default function Step2AccommodationView({
           </div>
         </motion.section>
 
-        {/* ACCOMMODATION SEARCH — Search & add hotel */}
-        {!readOnly && onAccommodationAdd && (
-          <AccommodationReviewer
-            accommodations={data.accommodations}
-            inputs={inputs}
-            onAdd={onAccommodationAdd}
-          />
-        )}
+        {/* ACCOMMODATION SEARCH — Disabled: GLM-5.1 web_search insufficient for hotel verification. TODO: re-evaluate with stronger model */}
 
         {/* RESTAURANTS — Per-stop */}
         {data.bestRestaurants.length > 0 && (

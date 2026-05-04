@@ -15,7 +15,7 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import * as XLSX from 'xlsx';
-import { generateTravelPlan, summarizeAccommodationReviews, getDestinationCountries, type TravelInputs } from './services/travelService';
+import { generateTravelPlan, getDestinationCountries, type TravelInputs } from './services/travelService';
 import { generateItinerary, modifyItinerary } from './services/step1Service';
 import { searchAccommodationsAndTransport } from './services/step2Service';
 import { calculateBudget } from './services/step3Service';
@@ -399,194 +399,9 @@ function Badge({ children, color = 'default' }: { children: React.ReactNode; col
   );
 }
 
-function AccommodationReviewer({ stops, inputs, onAdd }: { stops: any[]; inputs: any; onAdd?: (hotel: any, stopIndex: number) => void }) {
-  const [name, setName] = useState('');
-  const [stopIndex, setStopIndex] = useState<number>(0);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || stopIndex === undefined) return;
-    
-    const selectedStop = stops[stopIndex];
-    if (!selectedStop) return;
-
-    // Calcola le date per la tappa specifica
-    let currentOffset = 0;
-    for (let i = 0; i < stopIndex; i++) {
-      currentOffset += stops[i].nights || 0;
-    }
-    
-    const start = new Date(inputs.startDate);
-    const stopStart = new Date(start);
-    stopStart.setDate(start.getDate() + currentOffset);
-    
-    const stopEnd = new Date(stopStart);
-    stopEnd.setDate(stopStart.getDate() + (selectedStop.nights || 1));
-
-    const formatDate = (d: Date) => d.toISOString().split('T')[0];
-
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const data = await summarizeAccommodationReviews(
-        name, 
-        selectedStop.stopName,
-        formatDate(stopStart),
-        formatDate(stopEnd),
-        inputs.people
-      );
-      
-      if (data.exists === false) {
-        setError(`L'alloggio "${name}" non sembra esistere a ${selectedStop.stopName}. Per favore verifica il nome o la tappa.`);
-      } else {
-        setResult(data);
-      }
-    } catch (err: any) {
-      setError(err.message || "Errore durante la ricerca delle recensioni.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAdd = () => {
-    if (onAdd && result && stopIndex !== undefined) {
-      onAdd({
-        name: name,
-        type: "Hotel",
-        stars: 4,
-        rating: 8.5,
-        reviewSummary: result.summary,
-        pros: result.pros,
-        cons: result.cons,
-        estimatedPricePerNight: result.estimatedPricePerNight || 100,
-        bookingUrl: result.bookingUrl || `https://www.google.com/search?q=booking+${encodeURIComponent(name)}+${encodeURIComponent(stops[stopIndex].stopName)}`,
-        address: stops[stopIndex].stopName,
-        amenities: []
-      }, stopIndex);
-      setResult(null);
-      setName('');
-    }
-  };
-
-  return (
-    <div className="glass p-8 rounded-[2rem] mt-12 print:hidden">
-      <h3 className="text-2xl mb-4 flex items-center gap-2">
-        <Search className="w-5 h-5 text-brand-accent" /> Seleziona un nuovo alloggio
-      </h3>
-      <p className="text-sm text-brand-ink/60 mb-6">
-        Inserisci il nome di un alloggio e seleziona la tappa per verificare se esiste e leggere le recensioni.
-      </p>
-      <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-4 mb-6">
-        <input
-          type="text"
-          placeholder="Nome alloggio (es. Hilton)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="flex-1 bg-white border border-brand-ink/10 rounded-xl px-4 py-3 text-sm focus:border-brand-accent outline-none"
-          required
-        />
-        <select
-          value={stopIndex}
-          onChange={(e) => setStopIndex(parseInt(e.target.value))}
-          className="flex-1 bg-white border border-brand-ink/10 rounded-xl px-4 py-3 text-sm focus:border-brand-accent outline-none appearance-none cursor-pointer"
-          required
-        >
-          {stops.map((stop, idx) => (
-            <option key={idx} value={idx}>
-              {stop.stopName}
-            </option>
-          ))}
-        </select>
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-brand-accent text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-brand-accent/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-          Verifica
-        </button>
-      </form>
-
-      {error && (
-        <motion.div 
-          initial={{ opacity: 0, y: -10 }} 
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-start gap-3 mb-6"
-        >
-          <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-red-700 text-sm">{error}</p>
-        </motion.div>
-      )}
-
-      {result && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl p-6 border border-brand-ink/5">
-          <div className="flex items-center gap-2 mb-4">
-            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-            <h4 className="font-bold text-brand-ink">Alloggio trovato a {stops[stopIndex].stopName}</h4>
-          </div>
-          <p className="text-sm leading-relaxed mb-6">{result.summary}</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-widest text-emerald-600 mb-3">Punti di forza</h4>
-              <ul className="space-y-2">
-                {(result.pros || []).map((pro: string, i: number) => (
-                  <li key={i} className="text-sm flex items-start gap-2">
-                    <Plus className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" /> {pro}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-widest text-red-600 mb-3">Punti deboli</h4>
-              <ul className="space-y-2">
-                {(result.cons || []).map((con: string, i: number) => (
-                  <li key={i} className="text-sm flex items-start gap-2">
-                    <Minus className="w-4 h-4 text-red-500 shrink-0 mt-0.5" /> {con}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-brand-ink/5 pt-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-widest text-brand-ink/40 mb-3">Cerca su</h4>
-              <div className="flex flex-wrap gap-3">
-                <a
-                  href={inputs ? getBookingUrl(name, stops[stopIndex].stopName, inputs.startDate, inputs.endDate, inputs.people) : `https://www.google.com/search?q=booking+${encodeURIComponent(name)}+${encodeURIComponent(stops[stopIndex].stopName)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs bg-brand-ink/5 hover:bg-brand-ink/10 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-colors"
-                >
-                  Booking.com <ExternalLink className="w-3 h-3" />
-                </a>
-                <a
-                  href={`https://www.google.com/search?q=tripadvisor+${encodeURIComponent(name)}+${encodeURIComponent(stops[stopIndex].stopName)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs bg-brand-ink/5 hover:bg-brand-ink/10 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-colors"
-                >
-                  TripAdvisor <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            </div>
-            {onAdd && (
-              <button
-                onClick={handleAdd}
-                className="bg-brand-accent text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-brand-accent/90 transition-colors flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4" /> Aggiungi alla tappa
-              </button>
-            )}
-          </div>
-        </motion.div>
-      )}
-    </div>
-  );
-}
+// ─── ACCOMMODATION REVIEWER — DISABLED ──────────────────────────────
+// GLM-5.1 web_search insufficient for hotel verification.
+// TODO: re-evaluate with stronger model or Booking.com API integration.
 
 // ─── RESULTS VIEW ─────────────────────────────────────────────────────────────
 
@@ -1970,31 +1785,7 @@ function ResultsView({ plan, inputs, onReset, onShowTrips, onModify, onUpdatePla
               </div>
             ))}
           </div>
-          <AccommodationReviewer 
-            stops={plan.accommodations || []}
-            inputs={inputs}
-            onAdd={(hotel, stopIndex) => {
-              // Aggiungi l'hotel alle opzioni della tappa selezionata
-              const updatedPlan = { ...plan };
-              if (updatedPlan.accommodations && updatedPlan.accommodations[stopIndex]) {
-                // Crea una copia profonda della tappa per non mutare lo stato direttamente
-                const updatedAccommodations = [...updatedPlan.accommodations];
-                const updatedStop = { ...updatedAccommodations[stopIndex] };
-                updatedStop.options = [...updatedStop.options, hotel];
-                updatedAccommodations[stopIndex] = updatedStop;
-                updatedPlan.accommodations = updatedAccommodations;
-                
-                // Aggiorna lo stato globale
-                onUpdatePlan(updatedPlan);
-                
-                // Seleziona automaticamente l'hotel appena aggiunto
-                setSelectedAccommodations(prev => ({ ...prev, [stopIndex]: hotel }));
-                alert(`Alloggio aggiunto e selezionato per la tappa: ${plan.accommodations[stopIndex].stopName}`);
-              } else {
-                alert("Errore nell'aggiunta dell'alloggio: tappa non valida.");
-              }
-            }}
-          />
+          {/* Accommodation search disabled — GLM-5.1 insufficient */}
           </div>}
         </section>
 
