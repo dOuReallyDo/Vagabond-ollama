@@ -227,6 +227,24 @@ function detectCountryCode(location: string): string | undefined {
     'colombia': 'co',
     'perù': 'pe', 'peru': 'pe',
     'cile': 'cl', 'chile': 'cl',
+    'indonesia': 'id',
+    'malesia': 'my', 'malesya': 'my', 'malaysia': 'my',
+    'filippine': 'ph', 'philippines': 'ph',
+    'corea del sud': 'kr', 'south korea': 'kr',
+    'corea': 'kr',
+    'giava': 'id',
+    'sumatra': 'id',
+    'bali': 'id',
+    'borneo': 'id',
+    'celebes': 'id',
+    'papua nuova guinea': 'pg',
+    'nuova zelanda': 'nz', 'new zealand': 'nz',
+    'sri lanka': 'lk',
+    'singapore': 'sg',
+    'cambogia': 'kh', 'cambodia': 'kh',
+    'laos': 'la',
+    'myanmar': 'mm',
+    'sudafrica': 'za', 'south africa': 'za',
   };
 
   const lower = location.toLowerCase();
@@ -326,6 +344,26 @@ const CITY_NAME_MAP: Record<string, string> = {
   'capo verde': 'Cape Verde',
   'madera': 'Madeira',
   'azzorre': 'Azores',
+  // Indonesia / SE Asia
+  'komodo': 'Komodo',
+  'bali': 'Bali',
+  'ubud': 'Ubud',
+  'giacarta': 'Jakarta',
+  'jakarta': 'Jakarta',
+  'yogyakarta': 'Yogyakarta',
+  'bandung': 'Bandung',
+  'surabaya': 'Surabaya',
+  'denpasar': 'Denpasar',
+  'labuan bajo': 'Labuan Bajo',
+  'flores': 'Flores, Indonesia',
+  'lombok': 'Lombok',
+  'gili': 'Gili Islands',
+  // Japan
+  'tokyo': 'Tokyo',
+  'tokio': 'Tokyo',
+  'kyoto': 'Kyoto',
+  'osaka': 'Osaka',
+  'hiroshima': 'Hiroshima',
 };
 
 /**
@@ -397,10 +435,23 @@ export async function geocodeItinerary(
   const effectiveCountryCode = countryCode || departureCountryCode;
 
   // Geocode the main destination first to get a reference point for proximity checks
-  const destCity = destination.split(',')[0].trim();
+  // Clean destination: remove parenthesized country (e.g. "komodo (Indonesia)" → "komodo")
+  const destCityRaw = destination.split(',')[0].trim();
+  const destCity = destCityRaw.replace(/\s*\(.*?\)\s*/g, '').trim() || destCityRaw;
   const destResolved = resolveCityName(destCity);
   const destCoords = await geocodePlace(destResolved, effectiveCountryCode);
-  const MAX_DEVIATION_KM = 50; // Sub-locations must be within 50km of main destination
+  
+  // Dynamic proximity threshold based on destination characteristics:
+  // - Archipelago/Island nations (Indonesia, Philippines, etc.): 500km — islands are far apart
+  // - Large countries (USA, China, Australia, Brazil, India, Russia): 300km
+  // - European/medium countries (default): 50km
+  const ARCHIPELAGO_COUNTRIES = ['id', 'ph', 'pg', 'nz', 'jp', 'my', 'lk'];
+  const LARGE_COUNTRIES = ['us', 'cn', 'au', 'br', 'in', 'ru', 'ca', 'mx', 'ar'];
+  const MAX_DEVIATION_KM = ARCHIPELAGO_COUNTRIES.includes(effectiveCountryCode || '')
+    ? 500
+    : LARGE_COUNTRIES.includes(effectiveCountryCode || '')
+      ? 300
+      : 50;
 
   // Helper: check if geocoded coords are plausible (within MAX_DEVIATION_KM of destination)
   function isWithinProximity(lat: number, lng: number): boolean {
