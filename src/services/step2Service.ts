@@ -117,7 +117,7 @@ interface Stop {
  * in the same location. Location is determined by the first word of
  * the first activity's location, or the day title if no activities.
  */
-function extractStops(itinerary: ItineraryDraft): Stop[] {
+function extractStops(itinerary: ItineraryDraft, tripStyle?: string): Stop[] {
   const stops: Stop[] = [];
 
   for (const day of itinerary.itinerary) {
@@ -156,6 +156,24 @@ function extractStops(itinerary: ItineraryDraft): Stop[] {
         dayIndices: [day.day - 1],
       });
     }
+  }
+
+  // RELAX mode: if tripStyle is 'relax', merge all stops into one
+  // The AI may generate slightly different locations (Anacapri, Marina Grande, etc.)
+  // but the user wants ONE hotel for the entire trip
+  if (tripStyle === 'relax' && stops.length > 1) {
+    // Use the first stop name (most likely the main city) or the longest one
+    const mainStop = stops.reduce((a, b) =>
+      a.dayIndices.length >= b.dayIndices.length ? a : b
+    );
+    const mergedStop: Stop = {
+      stopName: mainStop.stopName,
+      nights: 0,
+      dayIndices: stops.flatMap(s => s.dayIndices).sort((a, b) => a - b),
+    };
+    mergedStop.nights = mergedStop.dayIndices.length;
+    stops.length = 0;
+    stops.push(mergedStop);
   }
 
   // Calculate nights per stop (days count = dayIndices.length, nights = days - 1 for intermediate stops, days for last)
@@ -647,7 +665,7 @@ export const searchAccommodationsAndTransport = async (
     const apiKey = await getApiKey();
 
     // Extract unique stops from itinerary
-    const stops = extractStops(itinerary);
+    const stops = extractStops(itinerary, inputs.tripStyle);
 
     if (stops.length === 0) {
       // Fallback: if we can't extract stops, use destination as single stop
