@@ -1,5 +1,24 @@
 # Vagabond-ollama — Changelog
 
+## 4 maggio 2026 (2) — Nominatim destCoords validation + Cape Verde
+
+### Commit
+`ebf89b4` — fix: nominatim geocoding — destCoords validation + Cape Verde + Italian prefixes
+
+### Problema
+Boa Vista (Capo Verde) geocodificata in Brasile (6552km di errore). Tutti i mapPoints finivano in Sudamerica.
+
+### Soluzioni
+1. **destCoords validation**: Se Nominatim geocodifica la destinazione >1000km dal centro dei mapPoints AI, usa il centro AI come riferimento. Se destCoords è null, fallback al centro AI.
+2. **Cape Verde (`cv`)** aggiunto a countryMap + ARCHIPELAGO_COUNTRIES (500km proximity). CITY_NAME_MAP con tutte le città principali.
+3. **Prefissi italiani espansi**: abbazia, basilica, chiesa, cattedrale, duomo, faro, spiaggia, portico, fondamenta, riserva, oasi, santuario, monumento, area marina protetta, campus, piazzale, riva.
+4. **Paesi aggiunti**: Kenya, Tanzania, Mozambique, Senegal, Ghana, Nigeria, Ethiopia, Tunisia, Algeria, Cuba, Dominican Republic, Jamaica, Costa Rica, Panama, UAE, Oman, Qatar, Jordan, Lebanon, Taiwan, Hong Kong, Macao.
+
+### File toccati
+- `src/lib/nominatim.ts`
+
+---
+
 ## 4 maggio 2026 — tripStyle + geocoding + hotel search
 
 ### Commit sequence

@@ -1,6 +1,27 @@
 # Changelog — Vagabond-ollama
 
-## 2026-05-04 — Nominatim geocoding fix + Accommodation search disabled
+## 2026-05-04 (2) — Nominatim destCoords validation + Cape Verde + Italian prefixes
+
+### Fixed: Destination geocoding wrong country (Boa Vista → Brazil instead of Cape Verde)
+- **Root cause**: `detectCountryCode()` didn't have Cape Verde (`cv`). Without country code, Nominatim returned the most "important" Boa Vista (Brazil). The proximity check then used the wrong destination as reference, validating all Brazilian coordinates.
+- **destCoords validation** (`nominatim.ts`): After geocoding the main destination, compare with AI mapPoints center. If >1000km apart, Nominatim is wrong — use AI center as reference. Also fallback to AI center if destCoords is null.
+- **Cape Verde (`cv`)** added to `countryMap` + `ARCHIPELAGO_COUNTRIES` (500km threshold)
+- **CITY_NAME_MAP**: Cape Verde cities — 'boa vista' → 'Boa Vista, Cape Verde', 'sal rei', 'sal', 'santa maria', 'santo antão', 'sao vicente', 'mindelo', 'santiago', 'praia', 'fogo', 'maio'
+- **More countries**: Kenya, Tanzania, Mozambique, Senegal, Ghana, Nigeria, Ethiopia, Tunisia, Algeria, Cuba, Dominican Republic, Jamaica, Costa Rica, Panama, UAE, Oman, Qatar, Jordan, Lebanon, Taiwan, Hong Kong, Macao
+
+### Expanded: Italian descriptive prefixes for geocoding
+- Added patterns: `abbazia`, `basilica`, `chiesa`, `cattedrale`, `duomo`, `faro`, `spiaggia`, `portico`, `fondamenta`, `campus`, `piazzale`, `riva`, `riserva`, `oasi`, `santuario`, `monumento`, `area marina protetta`
+- Fixes: "Abbazia di San Giorgio Maggiore" → "San Giorgio Maggiore", "Riserva Naturale Alberoni" → "Alberoni", "Fondamenta della Misericordia" → "Misericordia"
+
+### File touched
+- `src/lib/nominatim.ts` — all changes
+
+### Commit
+`ebf89b4` — fix: nominatim geocoding — destCoords validation + Cape Verde + Italian prefixes
+
+---
+
+## 2026-05-04 (1) — Nominatim geocoding fix + Accommodation search disabled
 
 ### Fixed: Nominatim geocoding for Indonesia/archipelago destinations
 - **countryMap**: Added Indonesia (id), Malaysia (my), Philippines (ph), Japan (jp), Korea (kr), NZ, Singapore, Cambodia, Laos, Myanmar, South Africa + more
