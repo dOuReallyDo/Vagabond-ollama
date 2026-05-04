@@ -74,10 +74,16 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - **Nominatim geocoding** (`src/lib/nominatim.ts`): After Zod validation in both `generateItinerary()` and `modifyItinerary()`, resolves `mapPoints`, `attractions`, and `activities` location names to accurate OSM coordinates via Nominatim API. Falls back to AI-generated coordinates if Nominatim fails. Free tier, 1 req/sec rate limiter, in-memory cache, no API key needed.
   - **`stripItalianPrefix()`**: 30+ regex patterns that remove Italian descriptive prefixes before geocoding — "Centro di Lisbona" → "Lisbona", "Escursione a Sintra" → "Sintra", "Arrivo a Faro" → "Faro", "Regione dell'Algarve" → "Algarve". Without this, Nominatim returns wrong locations or no results for Italian-prefixed names.
   - **`extractPlaceName()`**: Combined pipeline — strip Italian prefix → split on comma/paren/dash → resolve city name via `CITY_NAME_MAP`. Applied to mapPoints labels, attraction names, and activity locations.
-  - **`CITY_NAME_MAP`**: 50+ Italian→local city name mappings for better Nominatim results. "lisbona"→"Lisbon", "marsiglia"→"Marseille", "monaco"→"Munich" (Monaco di Baviera, not Principato), "parigi"→"Paris", "siviglia"→"Seville", "atene"→"Athens", etc. Without this, ambiguous Italian names can geocode to wrong countries.
+  - **`CITY_NAME_MAP`**: 60+ Italian→local city name mappings for better Nominatim results. European: "lisbona"→"Lisbon", "marsiglia"→"Marseille", "monaco"→"Munich" (Monaco di Baviera, not Principato), "parigi"→"Paris", "siviglia"→"Seville", "atene"→"Athens", etc. **Asian entries** (May 2026): Komodo, Bali, Ubud, Jakarta, Labuan Bajo, Flores, Lombok, Gili Islands, Tokyo, Kyoto, Osaka, Hiroshima. Without this, ambiguous Italian names can geocode to wrong countries.
   - **Country code fallback**: `geocodeItinerary()` accepts `departureCity` parameter. If `detectCountryCode(destination)` fails (e.g., "Lisbona" without "Portogallo"), uses `detectCountryCode(departureCity)` as fallback. **Critical for ambiguous cities**: "Lagos" without `countrycodes=pt` geocodes to Lagos, Nigeria (6.45°, 3.39°) instead of Lagos, Portugal (37.10°, -8.67°).
+  - **`countryMap` expansion** (May 2026): Added Indonesia (id), Malaysia (my), Philippines (ph), Japan (jp), Korea (kr), NZ (nz), Singapore (sg), Cambodia (kh), Laos (la), Myanmar (mm), South Africa (za) + more Asian/Oceanian countries. Previously only had ~30 European/Americas countries, causing `detectCountryCode()` to fail for destinations like "Komodo (Indonesia)".
+  - **`destCity` parenthesized country cleanup** (May 2026): `destination.split(',')[0]` now strips parenthesized country suffix — "komodo (Indonesia)" → "komodo". Without this, context-first geocoding queries like "Ubud, komodo (Indonesia)" fail on Nominatim because the parenthesized country is not a valid place name.
   - **`geocodePlace()` fallback logic**: tries with `countryCode` first (most precise), then without (global search). Strips Italian prefixes and resolves city names before geocoding.
-  - **Context-first geocoding** (May 2026): After destination geocode, all sub-locations try `"name, destination"` FIRST (e.g. "Marina Grande, Capri"), falling back to bare name only if context fails. Proximity check: results must be within 50km of main destination. Prevents "Marina Grande" geocoding to Sorrento instead of Capri.
+  - **Context-first geocoding** (May 2026): After destination geocode, all sub-locations try `"name, destination"` FIRST (e.g. "Marina Grande, Capri"), falling back to bare name only if context fails. **Proximity check: results must be within a dynamic threshold** of the main destination (varies by country type — see below). Prevents "Marina Grande" geocoding to Sorrento instead of Capri.
+  - **Dynamic proximity threshold** (May 2026): Was fixed 50km, now varies by country type:
+    - **Archipelago nations** (ID, PH, PG, NZ, JP, MY, LK): 500km — islands are far apart (e.g. Ubud to Komodo = 460km)
+    - **Large countries** (US, CN, AU, BR, IN, RU, CA, MX, AR): 300km
+    - **Default** (Europe/medium): 50km — works for Italian "frazioni" disambiguation
   - **Cache-aware geocoding**: mapPoints geocode using cleaned place names. Activities geocode using only the `location` field (city name), not the activity name. Attractions try name alone first, then name+destination fallback. Duplicate city lookups are skipped (cache hit).
   - **Step 4 — City extraction**: After geocoding, extracts unique cities from itinerary day-by-day activity locations, skips generic locations, geocodes them, and **overrides mapPoints** with type "city" in visit order. Requires >= 2 valid geocoded cities.
 - **Prompt updated**: mapPoints now type "city" only, MAX 10 points, representing main stops not individual attractions. JSON example: `{ "lat": 0, "lng": 0, "label": "Città tappa", "type": "city" }`
@@ -89,7 +95,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - `max_tokens: 4000` per stop, `4000` for flights (increased from 2000 — flight JSON with web_search results needs more tokens)
 - `extractStops()`: groups consecutive days by location, strips Italian prefixes, case-insensitive matching. **tripStyle parameter**: when `relax`, merges all stops into 1 (prevents AI fragmenting stay into multiple hotels for sub-locations like "Anacapri" vs "Capri centro")
 - Hotels MUST be within 5km of stop city (prompt rule). EXACTLY 3 options with best reviews/rating ≥4.0
-- **Accommodation search** (`src/services/accommodationSearch.ts`): GLM-5.1 + web_search, verifies hotel exists at stop city, returns pros/cons/price. UI component `AccommodationReviewer` in Step2AccommodationView lets user search hotel by name, read reviews, add to stop's options.
+- **Accommodation search — DISABLED** (May 2026): GLM-5.1 `web_search` is insufficient for hotel verification — returns `exists:false` for well-known hotels. The `AccommodationReviewer` component has been removed from `App.tsx` and `Step2AccommodationView.tsx`. The service file `src/services/accommodationSearch.ts` is preserved for future reference. **TODO**: Re-evaluate with a stronger model or Booking.com API integration.
 - Each stop returns 2-3 hotel options with `bookingUrl` + `officialUrl`
 - Each flight segment returns 2-3 transport options
 - **Programmatic car segments**: When `flightPreference` includes "auto", `generateCarSegments()` (now `async`) creates one segment per route leg (departure→stop1→stop2→...→return) with estimated distance, fuel+tolls cost, duration, per-segment Google Maps URL — **no AI call for car transport**. **Single option per segment**: Autostrada (€0.15/km fuel + €0.07/km tolls) — 'senza pedaggi' option removed. `estimateRoadKmWithGeocode()` uses 80+ European route lookup table first, then Nominatim geocoding + haversine fallback (replaces fixed 400km fallback). `estimateDriveDurationMinutes()` uses realistic speed by distance (<100km: 60km/h, 100–400km: 90km/h, >400km: 100km/h). FlightCard uses `flight.bookingUrl` directly for Google Maps link.
@@ -135,7 +141,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 | `searchAccommodationsAndTransport()` | `step2Service.ts` | `glm-5.1` | 4000/stop, 4000/flights | web_search (parallel `Promise.allSettled`) |
 | `calculateBudget()` | `step3Service.ts` | — (pure JS) | — | — |
 | `getDestinationCountries()` | `travelService.ts` | — (Nominatim) | — | — |
-| `summarizeAccommodationReviews()` | `travelService.ts` | `glm-5.1` | 1024 | web_search |
+| `summarizeAccommodationReviews()` | `travelService.ts` | `glm-5.1` | 1024 | web_search — ⚠️ DISABLED (May 2026): unreliable hotel verification |
 | `generateTravelPlan()` | `travelService.ts` | `glm-5.1` | 16000 | web_search (legacy) |
 
 All AI calls use the OpenAI SDK with Zhipu API (`baseURL: https://open.bigmodel.cn/api/paas/v4`, model: `glm-5.1`, tool: `{ type: "web_search", web_search: { enable: true } }`).
@@ -330,6 +336,15 @@ Uses **Nominatim (OpenStreetMap) API** — free, no API key, instant (~100ms), z
 - **Attractions**: Try geocoding with `name` alone first; if that fails, fall back to `name + destination` (e.g. "Colosseo, Roma").
 - **Cache**: Duplicate city lookups are skipped — once a city is geocoded, subsequent lookups return cached coordinates instantly.
 
+**Non-European destination improvements (May 2026)**:
+- **`countryMap` expansion**: Added Indonesia (id), Malaysia (my), Philippines (ph), Japan (jp), Korea (kr), NZ (nz), Singapore (sg), Cambodia (kh), Laos (la), Myanmar (mm), South Africa (za) + more Asian/Oceanian countries. Previously only ~30 European/Americas countries, so `detectCountryCode()` failed for many Asian destinations.
+- **`destCity` parenthesized country cleanup**: `destination.split(',')[0]` now strips parenthesized country — "komodo (Indonesia)" → "komodo". Without this, context-first queries like "Ubud, komodo (Indonesia)" fail on Nominatim.
+- **Dynamic proximity threshold**: Was fixed 50km, now varies by country type:
+  - Archipelago nations (ID, PH, PG, NZ, JP, MY, LK): 500km — islands are far apart (e.g. Ubud to Komodo = 460km)
+  - Large countries (US, CN, AU, BR, IN, RU, CA, MX, AR): 300km
+  - Default (Europe/medium): 50km — works for Italian "frazioni" disambiguation
+- **`CITY_NAME_MAP` Asian entries**: Added Komodo, Bali, Ubud, Jakarta, Labuan Bajo, Flores, Lombok, Gili Islands, Tokyo, Kyoto, Osaka, Hiroshima
+
 **Step 4 — City extraction override**:
 After geocoding AI-provided points, step 4 extracts unique cities from itinerary day-by-day activity locations, skips generic locations (hotel, aeroporto, pernottamento, check-in, arrivo, partenza, etc.), geocodes them, and **overrides mapPoints** with type "city" in visit order. Requires >= 2 valid geocoded cities. This ensures TravelMap always shows the actual route (city stops), not random AI points. Falls back to all valid geocoded points with dashed line if fewer than 2 city-type points are found.
 
@@ -383,7 +398,7 @@ src/
 │   ├── supabase.ts                  # Supabase client
 │   ├── urlSafety.ts                 # URL whitelist, validation, sanitization
 │   ├── safeBrowsing.ts             # Google Safe Browsing API client
-│   ├── nominatim.ts                # Nominatim geocoding — stripItalianPrefix() (30+ regex), CITY_NAME_MAP (50+ Italian→local), extractPlaceName() pipeline, country code fallback from departureCity, Step 4 city extraction override, rate limiter + cache
+│   ├── nominatim.ts                # Nominatim geocoding — stripItalianPrefix() (30+ regex), CITY_NAME_MAP (60+ incl. Asian), extractPlaceName() pipeline, countryMap (expanded: Asian/Oceanian), destCity parenthesized country cleanup, dynamic proximity threshold (archipelago 500km / large 300km / default 50km), country code fallback from departureCity, Step 4 city extraction override, rate limiter + cache
 │   └── pptx-export.ts              # PPTX export (pptxgenjs, accepts unsplashImages Map, lookupUnsplash() helper, image pre-fetch to base64, all images rectangular, Unsplash fallback for hero/attractions/activities/map points, full budget detail, clickable source links)
 supabase/
 ├── schema.sql                       # DB schema (profiles, saved_trips, saved_trips_v2)
@@ -453,6 +468,7 @@ Steps 1 and 2 are always rendered when navigating back from Step 3. "Itinerario 
 - **`.optional()` vs `.nullish()`**: GLM-5.1 returns `null` for missing fields, not `undefined`. Use `.nullish()` for all `z.string()` and `z.number()` fields. Keep `.optional()` only for `z.array()` and `z.object()`.
 - **Empty strings**: GLM-5.1 returns `""` for URLs it can't find. Use `cleanEmptyStrings()` before Zod validation to convert `""` → `null`.
 - **Markdown code blocks**: GLM-5.1 with `web_search` wraps JSON in `\`\`\`json...\`\`\`` blocks instead of raw JSON. Always strip these blocks before JSON extraction (`text.replace(/^```json\s*|^```\s*|```$/gm, "")`). Without this, `indexOf("{")` returns -1 and parsing fails silently.
+- **Content extraction from web_search responses** (May 2026): When `web_search` is active, GLM-5.1 returns `content` as an **array of parts** (not a simple string). `extractText()` MUST use `.filter().map().join()` to concatenate ALL text parts — using `.find()` only returns the first part, losing critical content. Fixed in `accommodationSearch.ts`; must be noted for any future services using web_search results.
 - **max_tokens**: Step 1 uses `max_tokens: 16000` (increased from 12000 for longer itineraries). Step 2 flights uses `max_tokens: 4000` (increased from 2000). If still truncated, auto-retry with compact prompt kicks in (Step 1 only).
 - **JSON truncation**: GLM-5.1 may truncate JSON on long trips (7+ days). The code auto-retries with `buildCompactPrompt()` (fewer activities, shorter descriptions). Check `finish_reason` in logs — if "length", the response was cut off.
 - **`safeParse(j)` vs `safeParse(json)`**: Always validate the cleaned data (`j` after `cleanEmptyStrings`), not the raw parsed JSON.
