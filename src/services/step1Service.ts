@@ -247,7 +247,8 @@ DETTAGLI VIAGGIO:
 - Persone: ${totalPeople} (${inputs.people.adults} adulti${inputs.people.children.length ? `, ${inputs.people.children.length} bambini` : ""})
 - Budget TOTALE: €${inputs.budget}
 - Stopover richiesto: ${inputs.stopover || "Nessuno"}
-- Numero tappe desiderate: ${inputs.preferredStops ?? "auto (max N/2)"}
+- Stile viaggio: ${inputs.tripStyle === 'relax' ? 'Relax (1 città base, escursioni da lì)' : inputs.tripStyle === 'adventure' ? 'Avventura (tante tappe, anche 1 notte)' : 'Equilibrato (alcune tappe, ≥2 notti ciascuna)'}
+- Numero tappe desiderate: ${inputs.tripStyle === 'relax' ? '1 (città base)' : (inputs.preferredStops ?? "auto (max N/2)")}
 - Note: ${inputs.notes || "nessuna"}
 
 REGOLE COMPATTE PER EVITARE TRONCAMENTO:
@@ -263,7 +264,12 @@ REGOLE COMPATTE PER EVITARE TRONCAMENTO:
 - NESSUN campo tips, travelTime, transport nelle attività
 - JSON PURO: zero markdown, zero testo dopo }
 
-TAPPE: Ogni tappa ALMENO 2 notti. ${inputs.preferredStops ? `ESATTAMENTE ${inputs.preferredStops} tappe, ~${Math.floor(totalDays / inputs.preferredStops)} notti per tappa.` : `MAX N/2 tappe per viaggio di N giorni.`} Non cambiare città ogni giorno.
+TAPPE: ${inputs.tripStyle === 'relax'
+    ? `STILE RELAX: 1 sola città base, ${totalDays-1} notti nella stessa città, escursioni giornaliere (day-trip) da lì. Mai cambiare hotel.`
+    : inputs.tripStyle === 'adventure'
+    ? `STILE AVVENTURA: tappe anche di 1 notte. ${inputs.preferredStops ? `ESATTAMENTE ${inputs.preferredStops} tappe su ${totalDays} giorni.` : `~N/2+1 tappe per viaggio di N giorni.`} Ogni giorno può essere in una città diversa.`
+    : `Ogni tappa ALMENO 2 notti. ${inputs.preferredStops ? `ESATTAMENTE ${inputs.preferredStops} tappe, ~${Math.floor(totalDays / inputs.preferredStops)} notti per tappa.` : `MAX N/2 tappe per viaggio di N giorni.`} Non cambiare città ogni giorno.`
+}
 
 ITINERARIO GIORNALIERO:
 ${dateList}
@@ -352,7 +358,8 @@ DETTAGLI VIAGGIO:
 - Persone: ${totalPeople} (${inputs.people.adults} adulti${inputs.people.children.length ? `, ${inputs.people.children.length} bambini` : ""})
 - Budget TOTALE: €${inputs.budget}
 - Stopover richiesto: ${inputs.stopover || "Nessuno"}
-- Numero tappe desiderate: ${inputs.preferredStops ?? "auto (max N/2)"}
+- Stile viaggio: ${inputs.tripStyle === 'relax' ? 'Relax (1 città base, escursioni da lì)' : inputs.tripStyle === 'adventure' ? 'Avventura (tante tappe, anche 1 notte)' : 'Equilibrato (alcune tappe, ≥2 notti ciascuna)'}
+- Numero tappe desiderate: ${inputs.tripStyle === 'relax' ? '1 (città base)' : (inputs.preferredStops ?? "auto (max N/2)")}
 - Note: ${inputs.notes || "nessuna"}
 
 REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
@@ -363,10 +370,12 @@ REGOLE DI FORMATO (CRITICHE PER EVITARE TRONCAMENTI):
 - JSON: SOLO il JSON, zero markdown, niente testo dopo }.
 
 REGOLE TAPPE (OBBLIGATORIE):
-- Ogni tappa deve avere ALMENO 2 notti. Cambiare città ogni giorno è faticoso e irrealistico.
-- Se "Numero tappe desiderate" è un numero, usa ESATTAMENTE quel numero di tappe, distribuendo le notti di conseguenza (se viaggio di ${totalDays} giorni e ${inputs.preferredStops ?? "N"} tappe: ~${inputs.preferredStops ? Math.floor(totalDays / inputs.preferredStops) : "N/2"} notti per tappa).
-- Se non specificato: MAX N/2 tappe per viaggio di N giorni (10gg = max 5 tappe).
-- Città principali: 2-3 notti. Base + day-trip per escursioni vicine.
+${inputs.tripStyle === 'relax'
+    ? `- STILE RELAX: 1 sola città base per tutto il viaggio. L'itinerario DEVE avere UNA sola tappa dove il viaggiatore pernotta ogni notte, con escursioni giornaliere (day-trip) da quella base. Mai cambiare hotel. Se il viaggio è di ${totalDays} giorni: ${totalDays-1} notti nella stessa città base.`
+    : inputs.tripStyle === 'adventure'
+    ? `- STILE AVVENTURA: Il viaggiatore vuole vedere più posti possibile. Le tappe possono essere anche di 1 notte. Se "Numero tappe desiderate" è specificato, usa ESATTAMENTE quel numero di tappe distribuite su ${totalDays} giorni. Se non specificato: ~N/2+1 tappe per viaggio di N giorni. Ogni giorno può essere in una città diversa. "location" e "title" di ogni giorno = città dove si pernotta.`
+    : `- STILE EQUILIBRATO: Ogni tappa deve avere ALMENO 2 notti. Cambiare città ogni giorno è faticoso. Se "Numero tappe desiderate" è specificato, usa ESATTAMENTE quel numero di tappe, distribuendo le notti (~${inputs.preferredStops ? Math.floor(totalDays / inputs.preferredStops) : Math.floor(totalDays / 2)} notti per tappa). Se non specificato: MAX N/2 tappe per viaggio di N giorni. Città principali: 2-3 notti. Base + day-trip per escursioni vicine.`
+}
 - "location" e "title" di ogni giorno = città dove si pernotta.
 
 FONTI: Includi array "sources" con blog/guide verificati via web_search.

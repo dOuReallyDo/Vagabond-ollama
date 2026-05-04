@@ -10,7 +10,7 @@ import {
   Sun, ShieldCheck, ArrowRight, Plus, Minus, Loader2, Star,
   CheckCircle2, AlertTriangle, ChevronRight, ExternalLink, Utensils,
   Clock, Lightbulb, Smartphone, Train, Download, Search, Car,
-  User as UserIcon, LogOut, KeyRound, ChevronDown, X
+  User as UserIcon, LogOut, KeyRound, ChevronDown, X, Palmtree, Tent, Compass
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -2423,6 +2423,7 @@ function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoad
     isPeriodFlexible: false,
     accommodationType: 'Hotel di charme',
     flightPreference: '',
+    tripStyle: 'balanced',
     preferredStops: undefined as number | undefined,
     notes: '',
   });
@@ -2787,33 +2788,68 @@ function FormView({ onSubmit, loading, initialShowTrips, onShowTripsDone, onLoad
                 </div>
               </div>
 
-              {/* Numero tappe */}
+              {/* Stile viaggio */}
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-brand-ink/40">
+                  <Compass className="w-3 h-3" /> Stile di viaggio
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { value: 'relax' as const, label: 'Relax', icon: Palmtree, description: '1 città base, escursioni da lì' },
+                    { value: 'balanced' as const, label: 'Equilibrato', icon: MapPin, description: 'Alcune tappe, ≥2 notti ciascuna' },
+                    { value: 'adventure' as const, label: 'Avventura', icon: Tent, description: 'Tante tappe, anche 1 notte' },
+                  ].map((style) => (
+                    <button
+                      key={style.value}
+                      type="button"
+                      onClick={() => setInputs((p) => ({ ...p, tripStyle: style.value, preferredStops: style.value === 'relax' ? 1 : undefined }))}
+                      className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
+                        inputs.tripStyle === style.value
+                          ? 'border-brand-ink bg-brand-ink/5 shadow-sm'
+                          : 'border-brand-ink/10 hover:border-brand-ink/30'
+                      }`}
+                    >
+                      <style.icon className={`w-5 h-5 ${inputs.tripStyle === style.value ? 'text-brand-ink' : 'text-brand-ink/40'}`} />
+                      <span className={`text-xs font-bold ${inputs.tripStyle === style.value ? 'text-brand-ink' : 'text-brand-ink/50'}`}>{style.label}</span>
+                      <span className="text-[9px] text-brand-ink/30 text-center leading-tight">{style.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Numero tappe — solo per balanced e adventure */}
+              {inputs.tripStyle !== 'relax' && (
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-brand-ink/40">
                   <MapPin className="w-3 h-3" /> Quante tappe vuoi fare?
-                  <span className="text-brand-ink/30 normal-case tracking-normal font-normal">(ogni tappa ≥ 2 notti)</span>
+                  <span className="text-brand-ink/30 normal-case tracking-normal font-normal">
+                    {inputs.tripStyle === 'adventure' ? '(anche 1 notte per tappa)' : '(ogni tappa ≥ 2 notti)'}
+                  </span>
                 </label>
                 <div className="flex items-center gap-4">
                   <button
                     type="button"
-                    onClick={() => setInputs((p) => ({ ...p, preferredStops: Math.max(1, (p.preferredStops ?? 2) - 1) }))}
+                    onClick={() => setInputs((p) => ({ ...p, preferredStops: Math.max(1, (p.preferredStops ?? (p.tripStyle === 'balanced' ? 2 : 3)) - 1) }))}
                     className="w-8 h-8 rounded-full border border-brand-ink/20 flex items-center justify-center hover:bg-brand-ink/5 transition-colors"
                   >
                     <Minus className="w-3 h-3" />
                   </button>
-                  <span className="text-2xl font-serif w-8 text-center">{inputs.preferredStops ?? 2}</span>
+                  <span className="text-2xl font-serif w-8 text-center">{inputs.preferredStops ?? (inputs.tripStyle === 'balanced' ? 2 : 3)}</span>
                   <button
                     type="button"
-                    onClick={() => setInputs((p) => ({ ...p, preferredStops: Math.min(10, (p.preferredStops ?? 2) + 1) }))}
+                    onClick={() => setInputs((p) => ({ ...p, preferredStops: Math.min(10, (p.preferredStops ?? (p.tripStyle === 'balanced' ? 2 : 3)) + 1) }))}
                     className="w-8 h-8 rounded-full border border-brand-ink/20 flex items-center justify-center hover:bg-brand-ink/5 transition-colors"
                   >
                     <Plus className="w-3 h-3" />
                   </button>
                   <span className="text-sm text-brand-ink/40 ml-2">
-                    {inputs.preferredStops === 1 ? '1 città base' : `${inputs.preferredStops ?? 2} città`}
+                    {inputs.tripStyle === 'adventure'
+                      ? `${inputs.preferredStops ?? 3} tappe`
+                      : (inputs.preferredStops ?? 2) === 1 ? '1 città base' : `${inputs.preferredStops ?? 2} città`}
                   </span>
                 </div>
               </div>
+              )}
 
               {/* Chi viaggia + Budget */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
