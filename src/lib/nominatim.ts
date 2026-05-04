@@ -375,6 +375,10 @@ function extractPlaceName(location: string): string {
  * Falls back to AI coords if Nominatim fails for a point.
  * Also geocodes attraction points and activity locations.
  * 
+ * Proximity check: sub-locations (e.g. "Marina Grande" near Capri) must be
+ * within MAX_DEVIATION_KM of the main destination, otherwise they're likely
+ * a same-name place in a different region (e.g. "Marina Grande" in Sicily).
+ * 
  * @param data - The Step 1 ItineraryDraft data (mutated in place)
  * @param destination - The trip destination (for country context)
  * @param departureCity - The departure city (for country context enhancement)
@@ -392,6 +396,23 @@ export async function geocodeItinerary(
   const departureCountryCode = departureCity ? detectCountryCode(departureCity) : undefined;
   const effectiveCountryCode = countryCode || departureCountryCode;
 
+  // Geocode the main destination first to get a reference point for proximity checks
+  const destCity = destination.split(',')[0].trim();
+  const destResolved = resolveCityName(destCity);
+  const destCoords = await geocodePlace(destResolved, effectiveCountryCode);
+  const MAX_DEVIATION_KM = 100; // Sub-locations must be within 100km of main destination
+
+  // Helper: check if geocoded coords are plausible (within MAX_DEVIATION_KM of destination)
+  function isWithinProximity(lat: number, lng: number): boolean {
+    if (!destCoords) return true; // No reference point → accept any result
+    const dist = haversineKm(destCoords.lat, destCoords.lng, lat, lng);
+    if (dist > MAX_DEVIATION_KM) {
+      console.warn(`[Nominatim] Proximity check failed: ${dist.toFixed(0)}km from destination (max ${MAX_DEVIATION_KM}km) — likely wrong same-name place`);
+      return false;
+    }
+    return true;
+  }
+
   // 1. Geocode mapPoints — extract clean place name from labels
   if (data.mapPoints && Array.isArray(data.mapPoints)) {
     const allLabels: string[] = (data.mapPoints as any[])
@@ -403,8 +424,15 @@ export async function geocodeItinerary(
     for (const label of uniqueLabels) {
       const placeName = extractPlaceName(label);
       const result = await geocodePlace(placeName, effectiveCountryCode);
-      if (result) {
+      if (result && isWithinProximity(result.lat, result.lng)) {
         labelCoords.set(label, result);
+      } else if (result && destCoords) {
+        // Proximity failed: try geocoding with destination context (e.g. "Marina Grande, Capri")
+        const contextResult = await geocodePlace(`${placeName}, ${destCity}`, effectiveCountryCode);
+        if (contextResult && isWithinProximity(contextResult.lat, contextResult.lng)) {
+          labelCoords.set(label, contextResult);
+        }
+        // If context also fails, keep AI coords (fallback)
       }
     }
 
@@ -423,14 +451,13 @@ export async function geocodeItinerary(
   // 2. Geocode attraction points in destinationOverview
   //    Strategy: try attraction name alone first, then with destination context
   if (data.destinationOverview?.attractions && Array.isArray(data.destinationOverview.attractions)) {
-    const destCity = destination.split(',')[0].trim();
     for (const attraction of data.destinationOverview.attractions) {
       if (!attraction.name) continue;
       const cleanName = extractPlaceName(attraction.name);
       
       // Try just the attraction name first (more specific = better match)
       const result = await geocodePlace(cleanName, effectiveCountryCode);
-      if (result) {
+      if (result && isWithinProximity(result.lat, result.lng)) {
         attraction.lat = result.lat;
         attraction.lng = result.lng;
         continue;
@@ -438,10 +465,11 @@ export async function geocodeItinerary(
       // Fallback: name + destination city
       const searchName = `${cleanName}, ${destCity}`;
       const result2 = await geocodePlace(searchName, effectiveCountryCode);
-      if (result2) {
+      if (result2 && isWithinProximity(result2.lat, result2.lng)) {
         attraction.lat = result2.lat;
         attraction.lng = result2.lng;
       }
+      // If both fail proximity, keep AI-provided coords
     }
   }
 
@@ -463,7 +491,7 @@ export async function geocodeItinerary(
         // Don't re-geocode the same city multiple times — use a cache check
         const cacheKey = `${cityName.toLowerCase()}|${effectiveCountryCode || ''}`;
         const existing = geocodeCache.get(cacheKey);
-        if (existing) {
+        if (existing && isWithinProximity(existing.lat, existing.lng)) {
           activity.lat = existing.lat;
           activity.lng = existing.lng;
           continue;
@@ -471,9 +499,17 @@ export async function geocodeItinerary(
 
         // Try geocoding the city
         const result = await geocodePlace(cityName, effectiveCountryCode);
-        if (result) {
+        if (result && isWithinProximity(result.lat, result.lng)) {
           activity.lat = result.lat;
           activity.lng = result.lng;
+        } else if (destCoords) {
+          // Proximity failed: try with destination context (e.g. "Marina Grande, Capri")
+          const contextResult = await geocodePlace(`${cityName}, ${destCity}`, effectiveCountryCode);
+          if (contextResult && isWithinProximity(contextResult.lat, contextResult.lng)) {
+            activity.lat = contextResult.lat;
+            activity.lng = contextResult.lng;
+          }
+          // If context also fails proximity, keep AI coords
         }
       }
     }
@@ -528,14 +564,21 @@ export async function geocodeItinerary(
     for (const city of cityRoute) {
       if (city.lat === 0 && city.lng === 0) {
         const result = await geocodePlace(city.label, effectiveCountryCode);
-        if (result) {
+        if (result && isWithinProximity(result.lat, result.lng)) {
           city.lat = result.lat;
           city.lng = result.lng;
+        } else if (destCoords) {
+          // Proximity failed: try with destination context
+          const contextResult = await geocodePlace(`${city.label}, ${destCity}`, effectiveCountryCode);
+          if (contextResult && isWithinProximity(contextResult.lat, contextResult.lng)) {
+            city.lat = contextResult.lat;
+            city.lng = contextResult.lng;
+          }
         }
       }
     }
 
-    // Only override mapPoints if we got at least 2 cities with valid coordinates
+    // Only override mapPoints if we got valid cities (within proximity)
     const validCities = cityRoute.filter(c => c.lat !== 0 && c.lng !== 0);
     if (validCities.length >= 2) {
       data.mapPoints = validCities.map(c => ({

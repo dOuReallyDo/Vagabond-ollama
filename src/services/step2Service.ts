@@ -326,9 +326,11 @@ TIPOLOGIA ALLOGGIO PREFERITA: ${accommodationType}
 BUDGET TOTALE VIAGGIO: €${inputs.budget}
 DATE: ${inputs.startDate} → ${inputs.endDate}
 
+⚠️ REGOLA FONDAMENTALE: Gli alloggi DEVONO essere a ${stopName} o nel raggio di 5 km da ${stopName}. NON proporre hotel che si trovano in altre città, regioni o zone — anche se hanno "${stopName}" nel nome. Verifica SU GOOGLE MAPS che l'indirizzo sia realmente a ${stopName} prima di proporlo.
+
 ISTRUZIONI:
 1. Usa la ricerca web per trovare prezzi REALI e aggiornati per alloggi a ${stopName}.
-2. Proponi 2-3 opzioni di alloggio (hotel, B&B, ostello, appartamento) con prezzi per notte trovati online.
+2. Proponi ESATTAMENTE 3 opzioni di alloggio con le recensioni migliori e rating più alto a ${stopName}. Dai priorità a hotel con rating ≥4.0 su booking.com/tripadvisor.
 3. Proponi 2 opzioni di ristorante locale con fascia di prezzo. Per OGNI ristorante includi un link "sourceUrl" a tripadvisor.it.
 4. Le descrizioni DEVONO essere brevi ma informative: 1-2 frasi per reviewSummary.
 5. Per "estimatedPricePerNight" indica il costo TOTALE della camera per TUTTE le ${totalPeople} persone, NON per persona.
