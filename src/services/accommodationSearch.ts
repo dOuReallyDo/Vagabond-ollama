@@ -45,10 +45,11 @@ async function getApiKey(): Promise<string> {
 
 function extractText(content: string | OpenAI.ChatCompletionContentPart[]): string {
   if (typeof content === "string") return content;
-  const textPart = content.find(
-    (p): p is OpenAI.ChatCompletionContentPartText => p.type === "text"
-  );
-  return textPart?.text ?? "";
+  // GLM-5.1 with web_search returns content as array of parts
+  const textParts = content
+    .filter((p): p is OpenAI.ChatCompletionContentPartText => p.type === "text")
+    .map(p => p.text);
+  return textParts.join("");
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,6 +60,9 @@ function repairJson(jsonText: string): any {
     let fixed = jsonText;
     const openBraces = (fixed.match(/{/g) || []).length;
     const closeBraces = (fixed.match(/}/g) || []).length;
+    const openBrackets = (fixed.match(/\[/g) || []).length;
+    const closeBrackets = (fixed.match(/]/g) || []).length;
+    if (openBrackets > closeBrackets) fixed += " ]".repeat(openBrackets - closeBrackets);
     if (openBraces > closeBraces) fixed += " }".repeat(openBraces - closeBraces);
     return JSON.parse(fixed);
   }
@@ -73,6 +77,57 @@ export interface AccommodationReviewResult {
   bookingUrl: string;
 }
 
+/**
+ * Generate a Booking.com search URL for a hotel + city + dates + guests
+ */
+function buildBookingSearchUrl(
+  name: string,
+  city: string,
+  startDate: string,
+  endDate: string,
+  adults: number,
+  children: number
+): string {
+  const checkin = startDate.replace(/-/g, "");
+  const checkout = endDate.replace(/-/g, "");
+  const query = encodeURIComponent(`${name} ${city}`);
+  return `https://www.booking.com/searchresults.html?ss=${query}&checkin=${checkin}&checkout=${checkout}&group_adults=${adults}&group_children=${children}&no_rooms=1`;
+}
+
+async function callGLMSearch(
+  apiKey: string,
+  prompt: string,
+  label: string
+): Promise<string> {
+  const client = new OpenAI({
+    apiKey,
+    baseURL: ZHIPU_BASE_URL,
+    dangerouslyAllowBrowser: true,
+  });
+
+  console.log(`[AccommodationSearch] ${label} — calling GLM-5.1 with web_search`);
+
+  const response = await client.chat.completions.create({
+    model: "glm-5.1",
+    max_tokens: 2048,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tools: [{ type: "web_search", web_search: { enable: true } }] as any,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const finishReason = response.choices[0]?.finish_reason;
+  const text = extractText(response.choices[0]?.message?.content || "");
+
+  console.log(`[AccommodationSearch] ${label} — finish_reason: ${finishReason}, text length: ${text.length}`);
+  console.log(`[AccommodationSearch] ${label} — response preview: ${text.substring(0, 300)}`);
+
+  if (finishReason === "length") {
+    console.warn(`[AccommodationSearch] ${label} — response truncated!`);
+  }
+
+  return text;
+}
+
 export const summarizeAccommodationReviews = async (
   name: string,
   city: string,
@@ -81,58 +136,115 @@ export const summarizeAccommodationReviews = async (
   people: { adults: number; children: { age: number }[] }
 ): Promise<AccommodationReviewResult> => {
   const apiKey = await getApiKey();
-  const client = new OpenAI({
-    apiKey,
-    baseURL: ZHIPU_BASE_URL,
-    dangerouslyAllowBrowser: true,
-  });
-
   const totalPeople = people.adults + people.children.length;
 
-  const prompt = `Sei un assistente di viaggio esperto. Cerca informazioni, recensioni e PREZZI REALI per l'alloggio "${name}" a "${city}" su siti come Booking.com e TripAdvisor.
-Verifica se l'alloggio esiste davvero in quella città e se si trova effettivamente a ${city} (non in un'altra località con nome simile).
+  // Main prompt — explicit search instructions for web_search
+  const prompt = `Usa la ricerca web per trovare informazioni reali su questo alloggio.
 
-DETTAGLI VIAGGIO:
-- Date: ${startDate} -> ${endDate}
-- Persone: ${people.adults} adulti, ${people.children.length} bambini
+RICERCA: "${name}" a ${city}
+Cerca su Booking.com, TripAdvisor, Google Hotels. Verifica che l'alloggio "${name}" esista REALMENTE a ${city} e non in un'altra città con nome simile.
 
-Restituisci SOLO JSON valido (zero markdown, zero commenti) con questa struttura esatta:
+DATI VIAGGIO:
+- Check-in: ${startDate}
+- Check-out: ${endDate}  
+- Ospiti: ${people.adults} adulti${people.children.length > 0 ? `, ${people.children.length} bambini` : ""}
+
+Se l'alloggio ESISTE a ${city}, restituisci questo JSON:
 {
   "exists": true,
-  "summary": "Riassunto delle recensioni (circa 3-4 frasi)",
-  "pros": ["Pro 1", "Pro 2"],
-  "cons": ["Contro 1", "Contro 2"],
-  "estimatedPricePerNight": 150,
-  "bookingUrl": "URL DI RICERCA DIRETTO SU BOOKING.COM PER LE DATE E PERSONE INDICATE"
+  "summary": "Riassunto recensioni da TripAdvisor/Booking (3-4 frasi con dettagli specifici)",
+  "pros": ["Vantaggio specifico 1", "Vantaggio specifico 2", "Vantaggio specifico 3"],
+  "cons": ["Svantaggio specifico 1", "Svantaggio specifico 2"],
+  "estimatedPricePerNight": PREZZO_REALE_PER_NOTTE_PER_TUTTI_I_${totalPeople}_OSPITI,
+  "bookingUrl": "URL_BOOKINGdiretto_o_ricerca"
 }
 
-Se l'alloggio NON esiste a "${city}", imposta "exists": false e lascia gli altri campi vuoti o con un messaggio di errore nel "summary".
-Il prezzo "estimatedPricePerNight" deve essere il costo REALE PER NOTTE per TUTTE le ${totalPeople} persone (quindi il costo della camera/e necessarie) per il periodo indicato.
+Se l'alloggio NON esiste a ${city} (non trovato su nessun sito), restituisci:
+{
+  "exists": false,
+  "summary": "Alloggio non trovato a ${city}",
+  "pros": [],
+  "cons": [],
+  "estimatedPricePerNight": 0,
+  "bookingUrl": ""
+}
 
-IMPORTANTE: Restituisci esclusivamente un oggetto JSON valido. Non includere testo prima o dopo il JSON. Non usare blocchi di codice markdown.`;
+REGOLE:
+- estimatedPricePerNight = costo TOTALE per notte per ${totalPeople} persone (tutte le camere necessarie)
+- Se non trovi il prezzo esatto, indica una stima realistica basata sulla categoria dell'hotel
+- pros e cons DEVONO essere specifici di questo hotel (non generici)
+- bookingUrl = URL Booking.com diretto se trovato, altrimenti URL di ricerca
+- Restituisci SOLO JSON valido, niente markdown, niente testo prima o dopo`;
 
-  const response = await client.chat.completions.create({
-    model: "glm-5.1",
-    max_tokens: 1024,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tools: [{ type: "web_search", web_search: { enable: true } }] as any,
-    messages: [{ role: "user", content: prompt }],
-  });
+  let text = await callGLMSearch(apiKey, prompt, "main");
 
-  const text = extractText(response.choices[0]?.message?.content || "");
+  // Clean markdown wrappers
   const cleanText = text.replace(/```(?:json)?\s*/g, "").replace(/```/g, "");
-
   const jsonStartIdx = cleanText.indexOf("{");
   const jsonEndIdx = cleanText.lastIndexOf("}");
 
   if (jsonStartIdx === -1 || jsonEndIdx === -1) {
-    console.error("Nessun JSON trovato nelle recensioni:", text);
-    throw new Error("L'AI non ha restituito recensioni valide.");
+    // Retry with simpler prompt
+    console.warn("[AccommodationSearch] No JSON in main response — retrying with compact prompt");
+
+    const compactPrompt = `Cerca su web: hotel "${name}" a ${city}. Esiste? Recensioni? Prezzo a notte per ${totalPeople} persone (${startDate} - ${endDate})?
+
+Rispondi SOLO con JSON:
+{"exists":boolean,"summary":"testo","pros":["p1","p2"],"cons":["c1"],"estimatedPricePerNight":number,"bookingUrl":"url"}`;
+
+    text = await callGLMSearch(apiKey, compactPrompt, "retry");
+    const retryClean = text.replace(/```(?:json)?\s*/g, "").replace(/```/g, "");
+    const retryStart = retryClean.indexOf("{");
+    const retryEnd = retryClean.lastIndexOf("}");
+
+    if (retryStart === -1 || retryEnd === -1) {
+      throw new Error("L'AI non ha restituito recensioni valide.");
+    }
+
+    try {
+      const result = repairJson(retryClean.substring(retryStart, retryEnd + 1));
+      return ensureBookingUrl(result, name, city, startDate, endDate, people.adults, people.children.length);
+    } catch {
+      throw new Error("L'AI non ha restituito un JSON valido per le recensioni.");
+    }
   }
 
   try {
-    return repairJson(cleanText.substring(jsonStartIdx, jsonEndIdx + 1));
+    const result = repairJson(cleanText.substring(jsonStartIdx, jsonEndIdx + 1));
+    return ensureBookingUrl(result, name, city, startDate, endDate, people.adults, people.children.length);
   } catch {
     throw new Error("L'AI non ha restituito un JSON valido per le recensioni.");
   }
 };
+
+/**
+ * Ensure bookingUrl is a valid Booking.com URL.
+ * If the AI returned an invalid/missing URL, generate one deterministically.
+ */
+function ensureBookingUrl(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: any,
+  name: string,
+  city: string,
+  startDate: string,
+  endDate: string,
+  adults: number,
+  children: number
+): AccommodationReviewResult {
+  const url = result.bookingUrl || "";
+  const isValidBookingUrl = url.startsWith("https://www.booking.com") || url.startsWith("https://booking.com");
+  const isValidUrl = url.startsWith("http://") || url.startsWith("https://");
+
+  return {
+    exists: result.exists ?? true,
+    summary: result.summary || "",
+    pros: Array.isArray(result.pros) ? result.pros : [],
+    cons: Array.isArray(result.cons) ? result.cons : [],
+    estimatedPricePerNight: result.estimatedPricePerNight || 0,
+    bookingUrl: isValidBookingUrl
+      ? url
+      : isValidUrl
+        ? url // keep TripAdvisor or other valid URLs
+        : buildBookingSearchUrl(name, city, startDate, endDate, adults, children),
+  };
+}
