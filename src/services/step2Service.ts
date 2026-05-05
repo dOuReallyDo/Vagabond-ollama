@@ -113,12 +113,59 @@ interface Stop {
 }
 
 /**
- * Extract unique stops from itinerary by grouping consecutive days
- * in the same location. Location is determined by the first word of
- * the first activity's location, or the day title if no activities.
+ * Extract the "parent" location from a raw location string.
+ * E.g. "Victoria, Mahé" → "Mahé", "Beau Vallon, Mahé" → "Mahé"
+ * "Mahé" → "Mahé", "Praslin" → "Praslin"
+ * Returns the part after the last comma if it looks like an island/region,
+ * otherwise the first part (the city).
  */
-function extractStops(itinerary: ItineraryDraft, tripStyle?: string): Stop[] {
+function extractParentLocation(raw: string): string {
+  const parts = raw.split(/[,\-]+/).map(p => p.trim().replace(/[^\wÀ-ÿ\s]/g, "").trim()).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || raw;
+  // If 2+ parts, the last part is typically the island/main city (e.g. "Mahé" in "Victoria, Mahé")
+  // Use it as the stop for hotel grouping
+  return parts[parts.length - 1];
+}
+
+/**
+ * Parse explicit city names from user notes.
+ * E.g. "vorrei visitare mahé, praslin e la digue" → ["mahé", "praslin", "la digue"]
+ * Handles Italian connectors: "mahé, praslin e la digue" → 3 cities
+ * Also handles: "mahé praslin la digue" (space-separated proper nouns)
+ */
+function parseCitiesFromNotes(notes: string | undefined): string[] {
+  if (!notes) return [];
+  const clean = notes.toLowerCase()
+    .replace(/[.;:!?()]/g, ',')
+    // Remove common Italian filler words and verbs — as whole words only
+    .replace(/\b(vorrei|voglio|visitare|vedere|andare|fare|stare|dormire|fermarmi|pernottare|anche|poi|prima|dopo|stessa|stesso|sopratutto|soprattutto|magari|possibilmente|vogliamo|vorremmo)\b/gi, '')
+    // Replace " e " with comma to split on it
+    .replace(/\s+e\s+/gi, ',')
+    // Split on commas
+    .split(/[,]+/)
+    .map(t => t.trim()
+      // Strip leading articles/prepositions, BUT preserve "la" when followed by capitalizable proper noun patterns
+      // e.g. "la digue" should keep "la" as part of the name
+      .replace(/^(in|dal|alle|agli|del|della|delle|degli|di|da|per|con|su|il|lo|le|gli|un|una|uno|i|al)\s+/gi, '')
+      // "a" is ambiguous — "a praslin" → strip, but keep if it's "la digue"
+      .replace(/^a\s+(?=[a-z])/gi, '')
+      .trim()
+    )
+    // Filter out empty and too-short tokens, but allow multi-word names like "la digue", "boa vista"
+    .filter(t => t.length >= 3 && t.length <= 40);
+  return clean;
+}
+
+/**
+ * Extract unique stops from itinerary by grouping consecutive days
+ * in the same location. Uses parent location (island/region) when available
+ * to avoid splitting one logical stop into sub-locations.
+ * Respects preferredStops count from inputs for consolidation.
+ */
+function extractStops(itinerary: ItineraryDraft, tripStyle?: string, inputs?: TravelInputs): Stop[] {
   const stops: Stop[] = [];
+  const preferredStops = inputs?.preferredStops;
+  const userNotes = inputs?.notes;
 
   for (const day of itinerary.itinerary) {
     // Determine location: use full location string, or day title
@@ -134,12 +181,19 @@ function extractStops(itinerary: ItineraryDraft, tripStyle?: string): Stop[] {
       .replace(/^(Arrivo a |Arrivo a|Visita |Visita|Esplorazione |Esplorazione|Partenza da |Partenza da|Scoperta |Scoperta|Giornata a |Giornata a|Tour di |Tour di)\s*/i, "")
       .trim();
 
-    // Take up to first 2 words (city + region) and clean
-    const stopName = cleanLocation
-      .split(/[,\-]+/)[0]  // Take part before comma (e.g. "Lisbona, Portogallo" → "Lisbona")
+    // Determine the stop name: prefer the parent location (island/region)
+    // e.g. "Victoria, Mahé" → use "Mahé" as the stop (same hotel across Mahé)
+    const parentLocation = extractParentLocation(cleanLocation);
+    // Also keep the full first part as display name for single-location cases
+    const cityPart = cleanLocation
+      .split(/[,\-]+/)[0]
       .trim()
       .replace(/[^\wÀ-ÿ\s]/g, "")
       .trim();
+
+    // Use parent location if it differs from city part (meaning there's a comma = sub-location)
+    // Otherwise use the city part directly
+    const stopName = parentLocation.toLowerCase() !== cityPart.toLowerCase() ? parentLocation : cityPart;
 
     if (!stopName) continue;
 
@@ -159,10 +213,7 @@ function extractStops(itinerary: ItineraryDraft, tripStyle?: string): Stop[] {
   }
 
   // RELAX mode: if tripStyle is 'relax', merge all stops into one
-  // The AI may generate slightly different locations (Anacapri, Marina Grande, etc.)
-  // but the user wants ONE hotel for the entire trip
   if (tripStyle === 'relax' && stops.length > 1) {
-    // Use the first stop name (most likely the main city) or the longest one
     const mainStop = stops.reduce((a, b) =>
       a.dayIndices.length >= b.dayIndices.length ? a : b
     );
@@ -176,19 +227,71 @@ function extractStops(itinerary: ItineraryDraft, tripStyle?: string): Stop[] {
     stops.push(mergedStop);
   }
 
-  // Calculate nights per stop (days count = dayIndices.length, nights = days - 1 for intermediate stops, days for last)
-  // More precisely: nights per stop = number of dayIndices (they spend that many nights)
-  // But the last day is departure day — travelers don't sleep there.
-  // Actually: nights in a stop = number of dayIndices if we count Pernottamento activities,
-  // but simpler: nights = dayIndices.length (each day they're there, they sleep there, except potentially the last day)
-  // For safety: nights = dayIndices.length (assume each day = one night)
+  // CONSOLIDATION: if user specified preferredStops and we extracted more,
+  // try to merge adjacent stops that belong to the same logical city/island
+  if (preferredStops && preferredStops > 0 && stops.length > preferredStops) {
+    // Try matching against explicit city names from user notes
+    const noteCities = parseCitiesFromNotes(userNotes);
+    
+    // Group adjacent stops by fuzzy matching (same parent or same root word)
+    // Merge until we reach preferredStops count
+    let merged = [...stops];
+    while (merged.length > preferredStops && merged.length > 1) {
+      // Find the pair of adjacent stops that are most similar (to merge first)
+      let bestIdx = -1;
+      let bestScore = 0;
+      for (let i = 0; i < merged.length - 1; i++) {
+        const a = merged[i].stopName.toLowerCase();
+        const b = merged[i + 1].stopName.toLowerCase();
+        // Score: check if one contains the other, or they share a significant word
+        let score = 0;
+        if (a.includes(b) || b.includes(a)) score = 3;
+        const aWords = a.split(/\s+/);
+        const bWords = new Set(b.split(/\s+/));
+        const sharedWords = aWords.filter(w => w.length > 2 && bWords.has(w)).length;
+        score += sharedWords;
+        // Check against note cities — if both map to same note city, high score
+        for (const nc of noteCities) {
+          const matchesA = a.includes(nc) || nc.includes(a);
+          const matchesB = b.includes(nc) || nc.includes(b);
+          if (matchesA && matchesB) { score += 5; break; }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      // If no good merge found, merge the smallest adjacent pair
+      if (bestIdx === -1) {
+        let minDays = Infinity;
+        for (let i = 0; i < merged.length - 1; i++) {
+          const totalDays = merged[i].dayIndices.length + merged[i + 1].dayIndices.length;
+          if (totalDays < minDays) {
+            minDays = totalDays;
+            bestIdx = i;
+          }
+        }
+      }
+      // Merge bestIdx and bestIdx+1
+      const a = merged[bestIdx];
+      const b = merged[bestIdx + 1];
+      // Use the name from whichever has more days
+      const mergedStop: Stop = {
+        stopName: a.dayIndices.length >= b.dayIndices.length ? a.stopName : b.stopName,
+        nights: 0,
+        dayIndices: [...a.dayIndices, ...b.dayIndices].sort((x, y) => x - y),
+      };
+      mergedStop.nights = mergedStop.dayIndices.length;
+      merged.splice(bestIdx, 2, mergedStop);
+    }
+    stops.length = 0;
+    stops.push(...merged);
+  }
+
+  // Calculate nights per stop
   for (const stop of stops) {
     stop.nights = stop.dayIndices.length;
   }
-
-  // The last day of the trip is typically a departure day with no overnight stay
-  // Adjust: if the last stop only has 1 day, it's likely departure — keep nights=1 anyway
-  // since the Pernottamento activity is expected in the itinerary.
 
   return stops;
 }
@@ -667,7 +770,7 @@ export const searchAccommodationsAndTransport = async (
     const apiKey = await getApiKey();
 
     // Extract unique stops from itinerary
-    const stops = extractStops(itinerary, inputs.tripStyle);
+    const stops = extractStops(itinerary, inputs.tripStyle, inputs);
 
     if (stops.length === 0) {
       // Fallback: if we can't extract stops, use destination as single stop
