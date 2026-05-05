@@ -1,5 +1,22 @@
 # Changelog — Vagabond-ollama
 
+## 2026-05-05 — extractStops parent location + preferredStops consolidation
+
+### Fixed: Archipelago destinations creating one hotel per day instead of per island
+- **Root cause**: AI generates locations like "Victoria, Mahé" and "Beau Vallon, Mahé". `extractStops()` took the first comma part ("Victoria", "Beau Vallon") as separate stops, creating one hotel booking per sub-location.
+- **`extractParentLocation()`**: Extracts the island/region part (after last comma) as the stop name. "Victoria, Mahé" → "Mahé", "Beau Vallon, Mahé" → "Mahé", "Anse Source d'Argent, La Digue" → "La Digue". This groups all sub-locations on the same island under one hotel search.
+- **`parseCitiesFromNotes()`**: Extracts explicit city names from user notes, preserving multi-word names ("la digue", "boa vista"). Handles Italian connectors: "mahé, praslin e la digue" → ["mahé", "praslin", "la digue"].
+- **preferredStops consolidation**: When extracted stops exceed `preferredStops`, adjacent similar stops are merged using fuzzy matching (shared words, containment, note city matching). Reduces N extracted stops to the user's preferredStops count.
+- **Signature change**: `extractStops(itinerary, tripStyle?, inputs?)` — now accepts optional `TravelInputs` for `preferredStops` and `notes`.
+
+### File touched
+- `src/services/step2Service.ts` — extractStops rewrite, extractParentLocation(), parseCitiesFromNotes(), consolidation logic
+
+### Commit
+`14762b4` — fix: extractStops uses parent location (island/region) + preferredStops consolidation
+
+---
+
 ## 2026-05-04 (2) — Nominatim destCoords validation + Cape Verde + Italian prefixes
 
 ### Fixed: Destination geocoding wrong country (Boa Vista → Brazil instead of Cape Verde)

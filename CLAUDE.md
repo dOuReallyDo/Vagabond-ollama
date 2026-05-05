@@ -69,7 +69,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 - Descriptions: 2-3 sentences for overview/highlights, 1-2 for activities
 - Sources: blog/guide/official URLs at the end
 - `cleanEmptyStrings()` converts AI empty strings to null before Zod validation
-- **tripStyle** (Apr 2026): Enum `relax|balanced|adventure` in `TravelInputsSchema`. UI: 3 styled cards replacing +/- counter. Relax=1 city base+day-trip, Balanced=≥2 nights per stop, Adventure=1 night allowed. `preferredStops` hidden for Relax, visible for others. Prompt differentiated per style. Step2 `extractStops()` merges all stops into 1 for Relax mode (prevents AI fragmenting stay into multiple hotels).
+- **tripStyle** (Apr 2026): Enum `relax|balanced|adventure` in `TravelInputsSchema`. UI: 3 styled cards replacing +/- counter. Relax=1 city base+day-trip, Balanced=≥2 nights per stop, Adventure=1 night allowed. `preferredStops` hidden for Relax, visible for others. Prompt differentiated per style. Step2 `extractStops()` now uses parent location (island/region) for stop grouping + preferredStops consolidation (May 2026).
 - **Map**: TravelMap (Leaflet) rendered in Step1ItineraryView with mapPoints before day cards
 - **Nominatim geocoding** (`src/lib/nominatim.ts`): After Zod validation in both `generateItinerary()` and `modifyItinerary()`, resolves `mapPoints`, `attractions`, and `activities` location names to accurate OSM coordinates via Nominatim API. Falls back to AI-generated coordinates if Nominatim fails. Free tier, 1 req/sec rate limiter, in-memory cache, no API key needed.
   - **`stripItalianPrefix()`**: 50+ regex patterns that remove Italian descriptive prefixes before geocoding — "Centro di Lisbona" → "Lisbona", "Escursione a Sintra" → "Sintra", "Arrivo a Faro" → "Faro", "Regione dell'Algarve" → "Algarve". Expanded May 2026: abbazia, basilica, chiesa, cattedrale, duomo, faro, spiaggia, riserva, oasi, santuario, monumento, area marina protetta, fondamenta, etc.
@@ -94,7 +94,7 @@ The app uses a **3-step sequential flow** instead of a monolithic AI call. This 
 **Step 2 — Accommodations + Transport** (`src/services/step2Service.ts`):
 - **Parallel AI calls**: `Promise.allSettled` fires all stop searches + flight search concurrently (no more sequential for-loop). Car preference (`flightPreference` includes "auto") skips flight AI call entirely.
 - `max_tokens: 4000` per stop, `4000` for flights (increased from 2000 — flight JSON with web_search results needs more tokens)
-- `extractStops()`: groups consecutive days by location, strips Italian prefixes, case-insensitive matching. **tripStyle parameter**: when `relax`, merges all stops into 1 (prevents AI fragmenting stay into multiple hotels for sub-locations like "Anacapri" vs "Capri centro")
+- `extractStops()`: groups consecutive days by location, strips Italian prefixes, case-insensitive matching. **tripStyle parameter**: when `relax`, merges all stops into 1. **Parent location strategy** (May 2026): Uses `extractParentLocation()` to extract the island/region part (e.g. "Victoria, Mahé" → "Mahé", "Beau Vallon, Mahé" → "Mahé") instead of the first comma part, preventing sub-locations within the same island from creating separate stops. **preferredStops consolidation**: When extracted stops > `preferredStops`, merges similar adjacent stops using fuzzy matching + `parseCitiesFromNotes()` (extracts city names from user notes, preserving multi-word names like "la digue", "boa vista"). **Signature**: `extractStops(itinerary, tripStyle?, inputs?)` — now accepts optional `TravelInputs` for preferredStops and notes.
 - Hotels MUST be within 5km of stop city (prompt rule). EXACTLY 3 options with best reviews/rating ≥4.0
 - **Accommodation search — DISABLED** (May 2026): GLM-5.1 `web_search` is insufficient for hotel verification — returns `exists:false` for well-known hotels. The `AccommodationReviewer` component has been removed from `App.tsx` and `Step2AccommodationView.tsx`. The service file `src/services/accommodationSearch.ts` is preserved for future reference. **TODO**: Re-evaluate with a stronger model or Booking.com API integration.
 - Each stop returns 2-3 hotel options with `bookingUrl` + `officialUrl`
@@ -470,12 +470,18 @@ Steps 1 and 2 are always rendered when navigating back from Step 3. "Itinerario 
 ### Zod Pitfalls with AI APIs
 - **`.optional()` vs `.nullish()`**: GLM-5.1 returns `null` for missing fields, not `undefined`. Use `.nullish()` for all `z.string()` and `z.number()` fields. Keep `.optional()` only for `z.array()` and `z.object()`.
 - **Empty strings**: GLM-5.1 returns `""` for URLs it can't find. Use `cleanEmptyStrings()` before Zod validation to convert `""` → `null`.
-- **Markdown code blocks**: GLM-5.1 with `web_search` wraps JSON in `\`\`\`json...\`\`\`` blocks instead of raw JSON. Always strip these blocks before JSON extraction (`text.replace(/^```json\s*|^```\s*|```$/gm, "")`). Without this, `indexOf("{")` returns -1 and parsing fails silently.
+- **Markdown code blocks**: GLM-5.1 with `web_search` wraps JSON in `\<code>json...\<code>` blocks instead of raw JSON. Always strip these blocks before JSON extraction (`text.replace(/^```json\s*|^```\s*|```$/gm, "")`). Without this, `indexOf("{")` returns -1 and parsing fails silently.
 - **Content extraction from web_search responses** (May 2026): When `web_search` is active, GLM-5.1 returns `content` as an **array of parts** (not a simple string). `extractText()` MUST use `.filter().map().join()` to concatenate ALL text parts — using `.find()` only returns the first part, losing critical content. Fixed in `accommodationSearch.ts`; must be noted for any future services using web_search results.
 - **max_tokens**: Step 1 uses `max_tokens: 16000` (increased from 12000 for longer itineraries). Step 2 flights uses `max_tokens: 4000` (increased from 2000). If still truncated, auto-retry with compact prompt kicks in (Step 1 only).
 - **JSON truncation**: GLM-5.1 may truncate JSON on long trips (7+ days). The code auto-retries with `buildCompactPrompt()` (fewer activities, shorter descriptions). Check `finish_reason` in logs — if "length", the response was cut off.
 - **`safeParse(j)` vs `safeParse(json)`**: Always validate the cleaned data (`j` after `cleanEmptyStrings`), not the raw parsed JSON.
 - **`.safeParse()` over `.parse()`**: Use `.safeParse()` for flight/accommodation validation so failures log errors instead of throwing. Step 2 flights uses `.safeParse()` with error logging.
+
+### extractStops Pitfall — Archipelago Destinations (May 2026)
+- **Problem**: AI generates "Victoria, Mahé" and "Beau Vallon, Mahé" — `extractStops()` was splitting on first comma part, creating stops "Victoria" and "Beau Vallon" as separate hotels on the same island.
+- **Fix**: `extractParentLocation()` uses the **last** comma part as the stop (island/region), not the first (sub-location). "Victoria, Mahé" → stop name = "Mahé".
+- **preferredStops consolidation**: If more stops extracted than `preferredStops`, adjacent similar stops merge via fuzzy matching + user note cities.
+- **Always pass `inputs`**: `extractStops(itinerary, tripStyle, inputs)` — preferredStops and notes from inputs enable correct consolidation.
 
 ### Git Conflict Rule
 When rebasing causes conflicts, read both sides carefully. Trinity's fixes may overlap with ours; merge intelligently.

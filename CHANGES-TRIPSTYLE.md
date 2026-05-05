@@ -1,3 +1,22 @@
+## 5 maggio 2026 — extractStops parent location + preferredStops consolidation
+
+### Commit
+`14762b4` — fix: extractStops uses parent location (island/region) + preferredStops consolidation
+
+### Problema
+Per destinazioni arcipelagiche come le Seychelles, l'AI genera location come "Victoria, Mahé" e "Beau Vallon, Mahé". `extractStops()` prendeva la prima parte dopo la virgola ("Victoria", "Beau Vallon") come tappe separate, creando un alloggio diverso ogni giorno invece di uno per isola.
+
+### Soluzioni
+1. **`extractParentLocation()`**: Estrae l'isola/regione (parte dopo l'ultima virgola) come nome tappa. Es: "Victoria, Mahé" → "Mahé", "Beau Vallon, Mahé" → "Mahé". Stesso hotel per tutta l'isola.
+2. **`parseCitiesFromNotes()`**: Estrae nomi città espliciti dalle note utente, preservando nomi multi-parola come "la digue", "boa vista". Es: "vorrei visitare mahé, praslin e la digue" → ["mahé", "praslin", "la digue"].
+3. **Consolidamento preferredStops**: Se le tappe estratte > preferredStops, fonde le adiacenti simili usando fuzzy matching + note città come riferimento. Riduce da N tappe al numero richiesto dall'utente.
+4. **Firma aggiornata**: `extractStops(itinerary, tripStyle?, inputs?)` — ora accetta TravelInputs opzionale per preferredStops e notes.
+
+### File toccati
+- `src/services/step2Service.ts`
+
+---
+
 # Vagabond-ollama — Changelog
 
 ## 4 maggio 2026 (2) — Nominatim destCoords validation + Cape Verde
